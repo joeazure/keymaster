@@ -1,0 +1,58 @@
+# Cursor AI Project Configuration
+project_type: cli
+language: python
+python_version: "3.11"
+
+# Project Structure
+root_dir: keymaster
+test_dir: tests
+docs_dir: docs
+
+# Dependencies
+required_packages:
+  - click>=8.1.0
+  - keyring>=24.0.0
+  - pyyaml>=6.0.0
+  - cryptography>=41.0.0
+  - python-dotenv>=1.0.0
+  - structlog>=23.0.0
+
+# Testing
+test_framework: pytest
+coverage_threshold: 90
+
+# Security
+security_checks:
+  - bandit
+  - safety
+
+# Code Style
+style_guide:
+  - black
+  - isort
+  - flake8
+
+# Documentation
+documentation:
+  format: mkdocs
+  api_docs: true
+  cli_docs: true
+
+# IDE Integration
+ide_support:
+  - cursor_ai
+  - windsurf
+  - vscode
+
+# Custom Settings
+settings:
+  max_line_length: 88
+  include_typing: true
+  security_level: high
+  
+# Project Metadata
+project_metadata:
+  name: keymaster
+  description: "Secure API key management for AI services"
+  author: "Your Name"
+  license: MIT
