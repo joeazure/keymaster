@@ -21,6 +21,13 @@ def init() -> None:
     Initialize Keymaster configuration and resources.
     """
     click.echo("Initializing Keymaster...")
+
+    audit_logger = AuditLogger()
+    audit_logger.log_event(
+        event_type="init",
+        user=os.getlogin(),
+        additional_data={"action": "init"}
+    )
     # Future steps might include:
     # 1. Create an initial config file (if not already present).
     # 2. Verify system requirements for macOS keychain usage, etc.
@@ -134,9 +141,13 @@ def audit(service: Optional[str],
         return
         
     for event in events:
-        click.echo(f"[{event['timestamp']}] {event['event_type']}")
-        click.echo(f"  Service: {event['service']}")
-        click.echo(f"  Environment: {event['environment']}")
+        # Convert ISO timestamp to local time and format it
+        timestamp = datetime.fromisoformat(event['timestamp']).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        click.echo(f"[{timestamp}] {event['event_type']}")
+        if 'service' in event:
+            click.echo(f"  Service: {event['service']}")
+        if 'environment' in event:
+            click.echo(f"  Environment: {event['environment']}")
         click.echo(f"  User: {event['user']}")
         if decrypt and "decrypted_data" in event:
             click.echo(f"  Sensitive Data: {event['decrypted_data']}")
