@@ -24,3 +24,26 @@ Secure API key management for AI services, focusing on OpenAI, Anthropic, and St
 ## Installation
 
 1. Create and activate a virtual environment:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+2. Install from source:
+```bash
+git clone https://github.com/joeazure/keymaster.git
+cd keymaster
+pip install -e .
+```
+
+## Usage
+
+### Initialize Keymaster
+```bash
+keymaster init
+```
+
+### Add an API key
+```bash
+keymaster add --service openai --environment dev --api_key <your_api_key>
+```

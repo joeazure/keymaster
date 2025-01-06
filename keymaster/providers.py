@@ -1,20 +1,25 @@
+from abc import ABC, abstractmethod
 import os
-from typing import Any, Dict
+from typing import Any, Dict, ClassVar
 import structlog
 import requests
 
 log = structlog.get_logger()
 
-class BaseProvider:
+class BaseProvider(ABC):
     """Base class for API providers with common functionality."""
     
+    service_name: ClassVar[str]  # Will be set by each provider
+    
     @classmethod
+    @abstractmethod
     def test_key(cls, api_key: str) -> Dict[str, Any]:
         """Test if an API key is valid. Should be implemented by subclasses."""
-        raise NotImplementedError
+        pass
 
 class OpenAIProvider(BaseProvider):
     """OpenAI API provider implementation."""
+    service_name = "OpenAI"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -36,6 +41,7 @@ class OpenAIProvider(BaseProvider):
 
 class AnthropicProvider(BaseProvider):
     """Anthropic API provider implementation."""
+    service_name = "Anthropic"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -45,7 +51,6 @@ class AnthropicProvider(BaseProvider):
             "Content-Type": "application/json"
         }
         
-        # Note: Update this endpoint based on Anthropic's actual API
         response = requests.get(
             "https://api.anthropic.com/v1/models",
             headers=headers
@@ -58,6 +63,7 @@ class AnthropicProvider(BaseProvider):
 
 class StabilityProvider(BaseProvider):
     """Stability AI provider implementation."""
+    service_name = "Stability"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -75,4 +81,16 @@ class StabilityProvider(BaseProvider):
         if response.status_code == 200:
             return {"status": "valid", "engines": response.json()}
         else:
-            raise ValueError(f"Invalid API key: {response.text}") 
+            raise ValueError(f"Invalid API key: {response.text}")
+
+def get_providers() -> Dict[str, type[BaseProvider]]:
+    """Get all available providers."""
+    return {
+        provider.service_name.lower(): provider
+        for provider in [OpenAIProvider, AnthropicProvider, StabilityProvider]
+    }
+
+def get_provider_by_name(name: str) -> type[BaseProvider]:
+    """Get a provider by name (case-insensitive)."""
+    providers = get_providers()
+    return providers.get(name.lower()) 

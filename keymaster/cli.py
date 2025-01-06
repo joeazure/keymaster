@@ -6,6 +6,11 @@ import os
 from typing import Optional
 from keymaster.audit import AuditLogger
 from keymaster.env import EnvManager
+from keymaster.utils import prompt_selection
+from keymaster.providers import get_providers, get_provider_by_name
+
+# Default environments
+DEFAULT_ENVIRONMENTS = ["dev", "staging", "prod"]
 
 @click.group()
 def cli() -> None:
@@ -34,49 +39,81 @@ def init() -> None:
 
 
 @cli.command()
-@click.option("--service", prompt="Service name", help="Service name (e.g., OpenAI).")
-@click.option("--environment", prompt="Environment", help="Environment (dev, staging, prod).")
-@click.option("--api_key", prompt="API key", hide_input=True, help="API key to store securely.")
-def add_key(service: str, environment: str, api_key: str) -> None:
+def add_key() -> None:
     """
     Store a service API key securely in the macOS Keychain.
     """
-    KeychainSecurity.store_key(service, environment, api_key)
+    # Get available services from providers
+    available_services = list(provider.service_name for provider in get_providers().values())
+    service, _ = prompt_selection("Select service:", available_services)
+    
+    # Environment selection with option for new
+    environment, is_new = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+    
+    api_key = click.prompt("API key", hide_input=True)
+    
+    # Get the canonical service name from the provider
+    provider = get_provider_by_name(service)
+    if not provider:
+        click.echo(f"Unsupported service: {service}")
+        return
+        
+    service_name = provider.service_name  # Use the canonical name
+    
+    KeychainSecurity.store_key(service_name, environment, api_key)
     
     # Add audit logging
     audit_logger = AuditLogger()
     audit_logger.log_event(
         event_type="add_key",
-        service=service,
+        service=service_name,
         environment=environment,
         user=os.getlogin(),
-        sensitive_data=api_key,  # This will be encrypted in the audit log
-        additional_data={"action": "add"}
+        sensitive_data=api_key,
+        additional_data={"action": "add", "new_environment": is_new}
     )
     
-    click.echo(f"Key for service '{service}' ({environment}) stored securely.")
+    click.echo(f"Key for service '{service_name}' ({environment}) stored securely.")
 
 
 @cli.command()
-@click.option("--service", prompt="Service name", help="Service name (e.g., OpenAI).")
-@click.option("--environment", prompt="Environment", help="Environment (dev, staging, prod).")
-def remove_key(service: str, environment: str) -> None:
+def remove_key() -> None:
     """
     Remove a service API key from the macOS Keychain.
     """
-    KeychainSecurity.remove_key(service, environment)
-
-    # Add audit logging
-    audit_logger = AuditLogger()
-    audit_logger.log_event(
-        event_type="remove_key",
-        service=service,
-        environment=environment,
-        user=os.getlogin(),
-        additional_data={"action": "remove"}
-    )
+    available_services = list(provider.service_name for provider in get_providers().values())
+    service, _ = prompt_selection("Select service:", available_services)
+    environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
     
-    click.echo(f"Key for service '{service}' ({environment}) removed from Keychain.")
+    provider = get_provider_by_name(service)
+    if not provider:
+        click.echo(f"Unsupported service: {service}")
+        return
+        
+    service_name = provider.service_name
+    
+    # First check if the key exists
+    existing_key = KeychainSecurity.get_key(service_name, environment)
+    if not existing_key:
+        click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
+        return
+
+    try:
+        KeychainSecurity.remove_key(service_name, environment)
+        
+        # Add audit logging
+        audit_logger = AuditLogger()
+        audit_logger.log_event(
+            event_type="remove_key",
+            service=service_name,
+            environment=environment,
+            user=os.getlogin(),
+            additional_data={"action": "remove"}
+        )
+        
+        click.echo(f"Key for service '{service_name}' ({environment}) removed from Keychain.")
+    except Exception as e:
+        click.echo(f"Error removing key: {str(e)}")
 
 
 @cli.command()
