@@ -36,4 +36,10 @@ ENV/
 
 # Project specific
 keymaster/_version.py
-keymaster.yaml 
+keymaster.yaml
+
+# Test coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/ 

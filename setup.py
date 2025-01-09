@@ -33,6 +33,15 @@ setup(
         "structlog>=23.0.0",
         "requests>=2.31.0",
     ],
+    extras_require={
+        "test": [
+            "pytest>=7.4.0",
+            "pytest-cov>=4.1.0",
+            "pytest-mock>=3.11.1",
+            "responses>=0.23.0",
+            "freezegun>=1.2.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "keymaster=keymaster.cli:cli",
