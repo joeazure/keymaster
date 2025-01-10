@@ -39,7 +39,7 @@ jobs:
         fail_ci_if_error: true
 
     - name: Archive test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()  # Run even if tests fail
       with:
         name: test-results
