@@ -83,11 +83,44 @@ class StabilityProvider(BaseProvider):
         else:
             raise ValueError(f"Invalid API key: {response.text}")
 
+class DeepSeekProvider(BaseProvider):
+    """DeepSeek API provider implementation."""
+    service_name = "DeepSeek"
+    
+    @staticmethod
+    def test_key(api_key: str) -> Dict[str, Any]:
+        """Test if a DeepSeek API key is valid."""
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        # Using the chat completions endpoint for validation
+        data = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": "Hello!"}
+            ],
+            "stream": False
+        }
+        
+        response = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code == 200:
+            return {"status": "valid", "model": "deepseek-chat"}
+        else:
+            raise ValueError(f"Invalid API key: {response.text}")
+
 def get_providers() -> Dict[str, type[BaseProvider]]:
     """Get all available providers."""
     return {
         provider.service_name.lower(): provider
-        for provider in [OpenAIProvider, AnthropicProvider, StabilityProvider]
+        for provider in [OpenAIProvider, AnthropicProvider, StabilityProvider, DeepSeekProvider]
     }
 
 def get_provider_by_name(name: str) -> type[BaseProvider]:
