@@ -227,30 +227,68 @@ def test_key(service: str, environment: str) -> None:
 
 
 @cli.command()
-@click.option("--service", required=True, help="Service name (e.g., OpenAI)")
-@click.option("--environment", required=True, help="Environment (dev/staging/prod)")
-@click.option("--output", required=True, help="Output .env file path")
-def generate_env(service: str, environment: str, output: str) -> None:
+@click.option("--service", required=False, help="Service name (e.g., OpenAI)")
+@click.option("--environment", required=False, help="Environment (dev/staging/prod)")
+@click.option("--output", required=False, help="Output .env file path")
+def generate_env(service: str | None, environment: str | None, output: str | None) -> None:
     """Generate a .env file for the specified service and environment."""
-    key = KeychainSecurity.get_key(service, environment)
+    # If service not provided, prompt for it
+    if not service:
+        available_services = list(provider.service_name for provider in get_providers().values())
+        service, _ = prompt_selection("Select service:", available_services)
+    
+    # If environment not provided, prompt for it
+    if not environment:
+        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+    
+    # If output not provided, prompt for it with a default
+    if not output:
+        default_output = ".env"
+        output = click.prompt("Output file path", default=default_output)
+    
+    # Get the canonical service name
+    provider = get_provider_by_name(service)
+    if not provider:
+        click.echo(f"Unsupported service: {service}")
+        return
+        
+    service_name = provider.service_name  # Use the canonical name
+    
+    # Get the key
+    key = KeychainSecurity.get_key(service_name, environment)
     if not key:
-        click.echo(f"No key found for {service} in {environment} environment.")
+        click.echo(f"No key found for {service_name} in {environment} environment.")
         return
         
     env_vars = {
         "OPENAI": "OPENAI_API_KEY",
         "ANTHROPIC": "ANTHROPIC_API_KEY",
-        "STABILITY": "STABILITY_API_KEY"
+        "STABILITY": "STABILITY_API_KEY",
+        "DEEPSEEK": "DEEPSEEK_API_KEY"
     }
     
-    if service.upper() not in env_vars:
-        click.echo(f"Unsupported service: {service}")
+    if service_name.upper() not in env_vars:
+        click.echo(f"Unsupported service: {service_name}")
         return
         
-    env_var_name = env_vars[service.upper()]
+    env_var_name = env_vars[service_name.upper()]
     
     try:
         EnvManager.generate_env_file(output, {env_var_name: key})
+        
+        # Add audit logging
+        audit_logger = AuditLogger()
+        audit_logger.log_event(
+            event_type="generate_env",
+            service=service_name,
+            environment=environment,
+            user=os.getlogin(),
+            additional_data={
+                "output_file": output,
+                "env_var": env_var_name
+            }
+        )
+        
         click.echo(f"Generated .env file at {output}")
     except Exception as e:
         click.echo(f"Failed to generate .env file: {str(e)}")

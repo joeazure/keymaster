@@ -56,4 +56,22 @@ class EnvManager:
                 continue
             env_vars[k] = v
         log.info("Listed environment variables", count=len(env_vars))
-        return env_vars 
+        return env_vars
+
+    @staticmethod
+    def generate_env_file(filepath: str, variables: Dict[str, str]) -> None:
+        """
+        Generate a .env file with the specified variables.
+        :param filepath: Path where the .env file should be created.
+        :param variables: Dictionary of environment variables to write.
+        """
+        try:
+            with open(filepath, 'w') as f:
+                for key, value in variables.items():
+                    f.write(f'{key}={value}\n')
+            log.info("Generated .env file", filepath=filepath, var_count=len(variables))
+        except Exception as e:
+            log.error("Failed to generate .env file", 
+                     filepath=filepath, 
+                     error=str(e))
+            raise 
