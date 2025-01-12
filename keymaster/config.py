@@ -10,20 +10,22 @@ class ConfigManager:
     Manages loading and writing the Keymaster configuration file.
     """
 
-    CONFIG_FILENAME = "keymaster.yaml"
+    CONFIG_FILENAME = "config.yaml"
 
     @classmethod
     def _get_config_path(cls) -> str:
         """
-        Get the path to the config file located in the user's home directory.
+        Get the path to the config file located in the .keymaster directory.
         """
         home_dir = os.path.expanduser("~")
-        return os.path.join(home_dir, cls.CONFIG_FILENAME)
+        config_dir = os.path.join(home_dir, ".keymaster")
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, cls.CONFIG_FILENAME)
 
     @classmethod
     def load_config(cls) -> Dict[str, Any]:
         """
-        Load the config file from the user’s home directory or return an empty dictionary if not found.
+        Load the config file from the .keymaster directory or return an empty dictionary if not found.
         """
         path = cls._get_config_path()
         if not os.path.exists(path):
@@ -41,7 +43,7 @@ class ConfigManager:
     @classmethod
     def write_config(cls, data: Dict[str, Any]) -> None:
         """
-        Write the config data to the user’s home directory in YAML format.
+        Write the config data to the .keymaster directory in YAML format.
         """
         path = cls._get_config_path()
         try:
@@ -56,7 +58,6 @@ class ConfigManager:
         """
         Placeholder for encryption logic. In a real scenario, you can use cryptography or a similar library.
         """
-        # For demonstration, we simply reverse the string. Replace with strong encryption in production.
         return data[::-1]
 
     @classmethod

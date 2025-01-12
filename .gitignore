@@ -36,7 +36,7 @@ ENV/
 
 # Project specific
 keymaster/_version.py
-keymaster.yaml
+.keymaster/
 
 # Test coverage
 .coverage
