@@ -39,18 +39,25 @@ def init() -> None:
 
 
 @cli.command()
-def add_key() -> None:
+@click.option("--service", required=False, help="Service name (e.g., OpenAI)")
+@click.option("--environment", required=False, help="Environment (dev/staging/prod)")
+@click.option("--api_key", required=False, help="API key to store securely")
+def add_key(service: str | None, environment: str | None, api_key: str | None) -> None:
     """
     Store a service API key securely in the macOS Keychain.
     """
-    # Get available services from providers
-    available_services = list(provider.service_name for provider in get_providers().values())
-    service, _ = prompt_selection("Select service:", available_services)
+    # If service not provided, prompt for it
+    if not service:
+        available_services = list(provider.service_name for provider in get_providers().values())
+        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
     
-    # Environment selection with option for new
-    environment, is_new = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+    # If environment not provided, prompt for it
+    if not environment:
+        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
     
-    api_key = click.prompt("API key", hide_input=True)
+    # If api_key not provided, prompt for it
+    if not api_key:
+        api_key = click.prompt("API key", hide_input=True)
     
     # Get the canonical service name from the provider
     provider = get_provider_by_name(service)
@@ -70,20 +77,27 @@ def add_key() -> None:
         environment=environment,
         user=os.getlogin(),
         sensitive_data=api_key,
-        additional_data={"action": "add", "new_environment": is_new}
+        additional_data={"action": "add"}
     )
     
     click.echo(f"Key for service '{service_name}' ({environment}) stored securely.")
 
 
 @cli.command()
-def remove_key() -> None:
+@click.option("--service", required=False, help="Service name (e.g., OpenAI)")
+@click.option("--environment", required=False, help="Environment (dev/staging/prod)")
+def remove_key(service: str | None, environment: str | None) -> None:
     """
     Remove a service API key from the macOS Keychain.
     """
-    available_services = list(provider.service_name for provider in get_providers().values())
-    service, _ = prompt_selection("Select service:", available_services)
-    environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+    # If service not provided, prompt for it
+    if not service:
+        available_services = list(provider.service_name for provider in get_providers().values())
+        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
+    
+    # If environment not provided, prompt for it
+    if not environment:
+        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
     
     provider = get_provider_by_name(service)
     if not provider:
@@ -235,7 +249,7 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
     # If service not provided, prompt for it
     if not service:
         available_services = list(provider.service_name for provider in get_providers().values())
-        service, _ = prompt_selection("Select service:", available_services)
+        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
     
     # If environment not provided, prompt for it
     if not environment:

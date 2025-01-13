@@ -10,6 +10,7 @@ class BaseProvider(ABC):
     """Base class for API providers with common functionality."""
     
     service_name: ClassVar[str]  # Will be set by each provider
+    description: ClassVar[str]  # Description of the provider's service
     
     @classmethod
     @abstractmethod
@@ -20,6 +21,7 @@ class BaseProvider(ABC):
 class OpenAIProvider(BaseProvider):
     """OpenAI API provider implementation."""
     service_name = "OpenAI"
+    description = "OpenAI's GPT models and API services for natural language processing"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -42,6 +44,7 @@ class OpenAIProvider(BaseProvider):
 class AnthropicProvider(BaseProvider):
     """Anthropic API provider implementation."""
     service_name = "Anthropic"
+    description = "Anthropic's Claude models for advanced language understanding and generation"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -64,6 +67,7 @@ class AnthropicProvider(BaseProvider):
 class StabilityProvider(BaseProvider):
     """Stability AI provider implementation."""
     service_name = "Stability"
+    description = "Stability AI's image generation and AI models"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -86,6 +90,7 @@ class StabilityProvider(BaseProvider):
 class DeepSeekProvider(BaseProvider):
     """DeepSeek API provider implementation."""
     service_name = "DeepSeek"
+    description = "DeepSeek's language models with OpenAI-compatible API"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -95,7 +100,6 @@ class DeepSeekProvider(BaseProvider):
             "Content-Type": "application/json"
         }
         
-        # Using the chat completions endpoint for validation
         data = {
             "model": "deepseek-chat",
             "messages": [
