@@ -320,14 +320,44 @@ def audit(service: Optional[str],
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
 def test_key(service: str | None, environment: str | None) -> None:
     """Test an API key to verify it works with the service."""
-    # If service not provided, prompt for it
-    if not service:
-        available_services = list(provider.service_name for provider in get_providers().values())
-        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
+    # Get list of stored keys
+    stored_keys = KeychainSecurity.list_keys()
+    if not stored_keys:
+        click.echo("No keys found to test.")
+        return
+        
+    # Get unique services that have stored keys
+    available_services = sorted(set(service for service, _ in stored_keys))
     
-    # If environment not provided, prompt for it
+    # If service not provided, prompt for it from available services
+    if not service:
+        if len(available_services) == 0:
+            click.echo("No services found with stored keys.")
+            return
+            
+        service, _ = prompt_selection(
+            "Select service with stored keys:", 
+            available_services,
+            show_descriptions=True
+        )
+    
+    # Get available environments for the selected service
+    available_environments = sorted(set(
+        env for svc, env in stored_keys 
+        if svc.lower() == service.lower()
+    ))
+    
+    # If environment not provided, prompt for it from available environments
     if not environment:
-        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+        if len(available_environments) == 0:
+            click.echo(f"No environments found with stored keys for service {service}.")
+            return
+            
+        environment, _ = prompt_selection(
+            f"Select environment for {service}:", 
+            available_environments,
+            allow_new=False  # Don't allow new environments since we're testing existing keys
+        )
     
     # Get the canonical service name from the provider
     provider = get_provider_by_name(service)
@@ -337,6 +367,7 @@ def test_key(service: str | None, environment: str | None) -> None:
         
     service_name = provider.service_name  # Use the canonical name
     
+    # Verify the key exists
     key = KeychainSecurity.get_key(service_name, environment)
     if not key:
         click.echo(f"No key found for {service_name} in {environment} environment.")
