@@ -23,6 +23,17 @@ class ConfigManager:
         return os.path.join(config_dir, cls.CONFIG_FILENAME)
 
     @classmethod
+    def config_exists(cls) -> bool:
+        """
+        Check if the config file exists.
+        
+        Returns:
+            bool: True if the config file exists, False otherwise.
+        """
+        path = cls._get_config_path()
+        return os.path.exists(path)
+
+    @classmethod
     def load_config(cls) -> Dict[str, Any]:
         """
         Load the config file from the .keymaster directory or return an empty dictionary if not found.
@@ -65,4 +76,15 @@ class ConfigManager:
         """
         Placeholder for decryption logic. Mirror for the above demonstration function.
         """
-        return data[::-1] 
+        return data[::-1]
+
+    @classmethod
+    def config_exists(cls) -> bool:
+        """
+        Check if the config file exists.
+        
+        Returns:
+            bool: True if the config file exists, False otherwise.
+        """
+        path = cls._get_config_path()
+        return os.path.exists(path) 

@@ -8,6 +8,7 @@ from keymaster.audit import AuditLogger
 from keymaster.env import EnvManager
 from keymaster.utils import prompt_selection
 from keymaster.providers import get_providers, get_provider_by_name
+import sys
 
 # Default environments
 DEFAULT_ENVIRONMENTS = ["dev", "staging", "prod"]
@@ -25,17 +26,76 @@ def init() -> None:
     """
     Initialize Keymaster configuration and resources.
     """
+    # Check if already initialized by looking for config and directories
+    config_manager = ConfigManager()
+    is_initialized = (
+        config_manager.config_exists() and
+        os.path.exists(os.path.expanduser("~/.keymaster/logs")) and
+        os.path.exists(os.path.expanduser("~/.keymaster/db"))
+    )
+    
+    if is_initialized:
+        click.echo("Keymaster is already initialized and ready to use.")
+        return
+        
     click.echo("Initializing Keymaster...")
-
+    
+    # 1. Create initial config file if not present
+    if not config_manager.config_exists():
+        initial_config = {
+            "log_level": "INFO",
+            "log_file": "~/.keymaster/logs/keymaster.log",
+            "audit_file": "~/.keymaster/logs/audit.log",
+            "db_path": "~/.keymaster/db/keymaster.db"
+        }
+        config_manager.write_config(initial_config)
+        click.echo("Created initial configuration file.")
+    
+    # Create necessary directories
+    dirs_to_create = [
+        os.path.expanduser("~/.keymaster/logs"),
+        os.path.expanduser("~/.keymaster/db")
+    ]
+    
+    for directory in dirs_to_create:
+        if not os.path.exists(directory):
+            os.makedirs(directory, mode=0o700)  # Secure permissions
+            click.echo(f"Created directory: {directory}")
+    
+    # 2. Verify system requirements
+    if sys.platform != "darwin":
+        click.echo("Warning: Keymaster is designed for macOS. Some features may not work on other platforms.")
+    
+    try:
+        # Test keychain access
+        test_service = "__keymaster_test__"
+        test_env = "__test__"
+        test_value = "test_value"
+        
+        KeychainSecurity.store_key(test_service, test_env, test_value)
+        retrieved = KeychainSecurity.get_key(test_service, test_env)
+        KeychainSecurity.remove_key(test_service, test_env)
+        
+        if retrieved != test_value:
+            click.echo("Warning: Keychain access test failed. Key storage may not work correctly.")
+        else:
+            click.echo("Verified keychain access.")
+    except Exception as e:
+        click.echo(f"Warning: Could not verify keychain access: {str(e)}")
+    
+    # Log initialization
     audit_logger = AuditLogger()
     audit_logger.log_event(
         event_type="init",
         user=os.getlogin(),
-        additional_data={"action": "init"}
+        additional_data={
+            "action": "init",
+            "platform": sys.platform,
+            "keychain_test": "success" if retrieved == test_value else "failed"
+        }
     )
-    # Future steps might include:
-    # 1. Create an initial config file (if not already present).
-    # 2. Verify system requirements for macOS keychain usage, etc.
+    
+    click.echo("\nKeymaster initialization complete.")
 
 
 @cli.command()
