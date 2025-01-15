@@ -42,7 +42,8 @@ def init() -> None:
 @click.option("--service", required=False, help="Service name (e.g., OpenAI)")
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
 @click.option("--api_key", required=False, help="API key to store securely")
-def add_key(service: str | None, environment: str | None, api_key: str | None) -> None:
+@click.option("--force", is_flag=True, help="Force replace existing key without prompting")
+def add_key(service: str | None, environment: str | None, api_key: str | None, force: bool = False) -> None:
     """
     Store a service API key securely in the macOS Keychain.
     """
@@ -67,9 +68,53 @@ def add_key(service: str | None, environment: str | None, api_key: str | None) -
         
     service_name = provider.service_name  # Use the canonical name
     
+    # Check for existing key
+    existing_key = KeychainSecurity.get_key(service_name, environment)
+    if existing_key and not force:
+        click.echo(f"\nA key already exists for {service_name} ({environment})")
+        action = click.prompt(
+            "Choose action",
+            type=click.Choice([
+                'replace',
+                'keep',
+                'view',
+                'cancel'
+            ]),
+            default='cancel'
+        )
+        
+        if action == 'cancel':
+            click.echo("Operation cancelled")
+            return
+        elif action == 'keep':
+            click.echo("Keeping existing key")
+            return
+        elif action == 'view':
+            if click.confirm("Are you sure you want to view the existing key?", default=False):
+                click.echo(f"Existing key: {existing_key}")
+            if not click.confirm("Do you want to replace this key?", default=False):
+                click.echo("Operation cancelled")
+                return
+        # 'replace' continues with the operation
+        
+        # Backup the old key
+        audit_logger = AuditLogger()
+        audit_logger.log_event(
+            event_type="key_backup",
+            service=service_name,
+            environment=environment,
+            user=os.getlogin(),
+            sensitive_data=existing_key,
+            additional_data={
+                "action": "backup",
+                "reason": "key_replacement"
+            }
+        )
+    
+    # Store the new key
     KeychainSecurity.store_key(service_name, environment, api_key)
     
-    # Add audit logging
+    # Add audit logging for the new key
     audit_logger = AuditLogger()
     audit_logger.log_event(
         event_type="add_key",
@@ -77,7 +122,10 @@ def add_key(service: str | None, environment: str | None, api_key: str | None) -
         environment=environment,
         user=os.getlogin(),
         sensitive_data=api_key,
-        additional_data={"action": "add"}
+        additional_data={
+            "action": "add",
+            "replaced_existing": bool(existing_key)
+        }
     )
     
     click.echo(f"Key for service '{service_name}' ({environment}) stored securely.")
@@ -208,36 +256,65 @@ def audit(service: Optional[str],
 
 
 @cli.command()
-@click.option("--service", required=True, help="Service name (e.g., OpenAI)")
-@click.option("--environment", required=True, help="Environment (dev/staging/prod)")
-def test_key(service: str, environment: str) -> None:
+@click.option("--service", required=False, help="Service name (e.g., OpenAI)")
+@click.option("--environment", required=False, help="Environment (dev/staging/prod)")
+def test_key(service: str | None, environment: str | None) -> None:
     """Test an API key to verify it works with the service."""
-    key = KeychainSecurity.get_key(service, environment)
-    if not key:
-        click.echo(f"No key found for {service} in {environment} environment.")
-        return
-        
-    # Import the appropriate provider
-    provider_map = {
-        "openai": "OpenAIProvider",
-        "anthropic": "AnthropicProvider",
-        "stability": "StabilityProvider"
-    }
+    # If service not provided, prompt for it
+    if not service:
+        available_services = list(provider.service_name for provider in get_providers().values())
+        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
     
-    if service.lower() not in provider_map:
+    # If environment not provided, prompt for it
+    if not environment:
+        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
+    
+    # Get the canonical service name from the provider
+    provider = get_provider_by_name(service)
+    if not provider:
         click.echo(f"Unsupported service: {service}")
         return
         
-    provider_name = provider_map[service.lower()]
-    provider_module = __import__(f"keymaster.providers", fromlist=[provider_name])
-    provider_class = getattr(provider_module, provider_name)
+    service_name = provider.service_name  # Use the canonical name
+    
+    key = KeychainSecurity.get_key(service_name, environment)
+    if not key:
+        click.echo(f"No key found for {service_name} in {environment} environment.")
+        return
     
     try:
-        result = provider_class.test_key(key)
-        click.echo(f"Key test successful for {service} ({environment})")
+        result = provider.test_key(key)
+        click.echo(f"Key test successful for {service_name} ({environment})")
         click.echo(f"Response: {result}")
+        
+        # Add audit logging for the test
+        audit_logger = AuditLogger()
+        audit_logger.log_event(
+            event_type="test_key",
+            service=service_name,
+            environment=environment,
+            user=os.getlogin(),
+            additional_data={
+                "action": "test",
+                "result": "success"
+            }
+        )
     except Exception as e:
         click.echo(f"Key test failed: {str(e)}")
+        
+        # Log failed test attempt
+        audit_logger = AuditLogger()
+        audit_logger.log_event(
+            event_type="test_key",
+            service=service_name,
+            environment=environment,
+            user=os.getlogin(),
+            additional_data={
+                "action": "test",
+                "result": "failed",
+                "error": str(e)
+            }
+        )
 
 
 @cli.command()
