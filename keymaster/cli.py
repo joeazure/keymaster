@@ -1,5 +1,5 @@
 import click
-from keymaster.security import KeychainSecurity
+from keymaster.security import KeyStore
 from keymaster.config import ConfigManager
 from datetime import datetime
 import os
@@ -9,6 +9,7 @@ from keymaster.env import EnvManager
 from keymaster.utils import prompt_selection
 from keymaster.providers import get_providers, get_provider_by_name
 import sys
+from keyring.errors import KeyringError
 
 # Default environments
 DEFAULT_ENVIRONMENTS = ["dev", "staging", "prod"]
@@ -62,26 +63,28 @@ def init() -> None:
             os.makedirs(directory, mode=0o700)  # Secure permissions
             click.echo(f"Created directory: {directory}")
     
-    # 2. Verify system requirements
-    if sys.platform != "darwin":
-        click.echo("Warning: Keymaster is designed for macOS. Some features may not work on other platforms.")
-    
+    # 2. Verify system requirements and secure storage backend
     try:
-        # Test keychain access
+        KeyStore._verify_backend()
+        click.echo("Verified secure storage backend.")
+        
+        # Test key storage
         test_service = "__keymaster_test__"
         test_env = "__test__"
         test_value = "test_value"
         
-        KeychainSecurity.store_key(test_service, test_env, test_value)
-        retrieved = KeychainSecurity.get_key(test_service, test_env)
-        KeychainSecurity.remove_key(test_service, test_env)
+        KeyStore.store_key(test_service, test_env, test_value)
+        retrieved = KeyStore.get_key(test_service, test_env)
+        KeyStore.remove_key(test_service, test_env)
         
         if retrieved != test_value:
-            click.echo("Warning: Keychain access test failed. Key storage may not work correctly.")
+            click.echo("Warning: Secure storage test failed. Key storage may not work correctly.")
         else:
-            click.echo("Verified keychain access.")
+            click.echo("Verified secure storage access.")
+    except KeyringError as e:
+        click.echo(f"Warning: {str(e)}")
     except Exception as e:
-        click.echo(f"Warning: Could not verify keychain access: {str(e)}")
+        click.echo(f"Warning: Could not verify secure storage access: {str(e)}")
     
     # Log initialization
     audit_logger = AuditLogger()
@@ -91,7 +94,7 @@ def init() -> None:
         additional_data={
             "action": "init",
             "platform": sys.platform,
-            "keychain_test": "success" if retrieved == test_value else "failed"
+            "storage_test": "success" if retrieved == test_value else "failed"
         }
     )
     
@@ -129,7 +132,7 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
     service_name = provider.service_name  # Use the canonical name
     
     # Check for existing key
-    existing_key = KeychainSecurity.get_key(service_name, environment)
+    existing_key = KeyStore.get_key(service_name, environment)
     if existing_key and not force:
         click.echo(f"\nA key already exists for {service_name} ({environment})")
         action = click.prompt(
@@ -172,7 +175,7 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
         )
     
     # Store the new key
-    KeychainSecurity.store_key(service_name, environment, api_key)
+    KeyStore.store_key(service_name, environment, api_key)
     
     # Add audit logging for the new key
     audit_logger = AuditLogger()
@@ -215,13 +218,13 @@ def remove_key(service: str | None, environment: str | None) -> None:
     service_name = provider.service_name
     
     # First check if the key exists
-    existing_key = KeychainSecurity.get_key(service_name, environment)
+    existing_key = KeyStore.get_key(service_name, environment)
     if not existing_key:
         click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
         return
 
     try:
-        KeychainSecurity.remove_key(service_name, environment)
+        KeyStore.remove_key(service_name, environment)
         
         # Add audit logging
         audit_logger = AuditLogger()
@@ -245,14 +248,14 @@ def list_keys(service: str | None, show_values: bool) -> None:
     """
     List stored API keys in the macOS Keychain (service names only by default).
     """
-    keys = KeychainSecurity.list_keys(service)
+    keys = KeyStore.list_keys(service)
     if not keys:
         click.echo("No keys found.")
     else:
         click.echo("Stored keys:")
         for svc, env in keys:
             if show_values:
-                key_value = KeychainSecurity.get_key(svc, env)
+                key_value = KeyStore.get_key(svc, env)
                 click.echo(f" - Service: {svc}, Environment: {env}")
                 click.echo(f"   Key: {key_value}")
             else:
@@ -323,7 +326,7 @@ def audit(service: Optional[str],
 def test_key(service: str | None, environment: str | None, verbose: bool, test_all: bool) -> None:
     """Test an API key to verify it works with the service."""
     # Get list of stored keys
-    stored_keys = KeychainSecurity.list_keys()
+    stored_keys = KeyStore.list_keys()
     if not stored_keys:
         click.echo("No keys found to test.")
         return
@@ -350,7 +353,7 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
             click.echo(f"\n{service_name}:")
             
             for env in sorted(service_keys[svc]):
-                key = KeychainSecurity.get_key(service_name, env)
+                key = KeyStore.get_key(service_name, env)
                 if not key:
                     click.echo(f"  [{env}] ⚠️  Key not found")
                     continue
@@ -450,7 +453,7 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
         )
     
     # Verify the key exists
-    key = KeychainSecurity.get_key(service_name, environment)
+    key = KeyStore.get_key(service_name, environment)
     if not key:
         click.echo(f"No key found for {service_name} in {environment} environment.")
         return
@@ -532,7 +535,7 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
     service_name = provider.service_name  # Use the canonical name
     
     # Get the key
-    key = KeychainSecurity.get_key(service_name, environment)
+    key = KeyStore.get_key(service_name, environment)
     if not key:
         click.echo(f"No key found for {service_name} in {environment} environment.")
         return
@@ -576,7 +579,7 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
 @click.option("--environment", required=True, help="Environment (dev/staging/prod)")
 def rotate_key(service: str, environment: str) -> None:
     """Rotate an API key (requires manual input of new key)."""
-    old_key = KeychainSecurity.get_key(service, environment)
+    old_key = KeyStore.get_key(service, environment)
     if not old_key:
         click.echo(f"No existing key found for {service} in {environment} environment.")
         return
@@ -610,7 +613,7 @@ def rotate_key(service: str, environment: str) -> None:
         return
         
     # Store the new key
-    KeychainSecurity.store_key(service, environment, new_key)
+    KeyStore.store_key(service, environment, new_key)
     
     # Log the rotation
     audit_logger = AuditLogger()
