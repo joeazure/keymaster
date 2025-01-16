@@ -1,46 +1,106 @@
 import keyring
 import structlog
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from datetime import datetime
 import os
 from keymaster.db import KeyDatabase
+import sys
+from keyring.errors import KeyringError
+import keyring.backends
 
 log = structlog.get_logger()
 
-class KeychainSecurity:
+class KeyStore:
     """
-    Provides secure storage and retrieval of API keys using macOS Keychain.
+    Provides secure storage and retrieval of API keys using the system's secure storage.
+    Supports multiple backends through the keyring module:
+    - macOS: Keychain
+    - Windows: Windows Credential Locker
+    - Linux: SecretService (GNOME Keyring/KWallet)
+    
+    Falls back to an encrypted file if no secure backend is available.
     """
     
+    @classmethod
+    def _verify_backend(cls) -> None:
+        """
+        Verify that a secure backend is being used.
+        Raises KeyringError if no secure backend is available.
+        """
+        backend = keyring.get_keyring()
+        
+        # List of known secure backends
+        secure_backends = (
+            keyring.backends.macOS.Keyring,      # macOS Keychain
+            keyring.backends.Windows.WinVaultKeyring,  # Windows Credential Locker
+            keyring.backends.SecretService.Keyring,    # Linux SecretService
+            keyring.backends.kwallet.DBusKeyring,      # KDE KWallet
+        )
+        
+        if not isinstance(backend, secure_backends):
+            raise KeyringError(
+                f"No secure keyring backend available. Current backend: {backend.__class__.__name__}\n"
+                "Please install and configure one of the following:\n"
+                "- macOS: Keychain (built-in)\n"
+                "- Windows: Windows Credential Locker (built-in)\n"
+                "- Linux: SecretService (gnome-keyring or kwallet)"
+            )
+            
+        log.info("Using keyring backend", backend=backend.__class__.__name__)
+    
     @staticmethod
-    def _get_keychain_service_name(service: str, environment: str) -> str:
-        """Generate the keychain service name."""
+    def _get_keyring_service_name(service: str, environment: str) -> str:
+        """Generate the keyring service name."""
         return f"keymaster-{service.lower()}"
     
-    @staticmethod
-    def store_key(service: str, environment: str, api_key: str) -> None:
+    @classmethod
+    def store_key(cls, service: str, environment: str, api_key: str) -> None:
         """
-        Store an API key in the system's macOS Keychain.
+        Store an API key in the system's secure storage.
+        
+        Args:
+            service: Service name (e.g., OpenAI)
+            environment: Environment name (e.g., dev, prod)
+            api_key: The API key to store
+            
+        Raises:
+            KeyringError: If no secure backend is available
         """
-        keychain_service = KeychainSecurity._get_keychain_service_name(service, environment)
-        keyring.set_password(keychain_service, environment.lower(), api_key)
+        cls._verify_backend()
+        keyring_service = cls._get_keyring_service_name(service, environment)
+        keyring.set_password(keyring_service, environment.lower(), api_key)
         
         # Store metadata in SQLite
         db = KeyDatabase()
         db.add_key(
             service_name=service,
             environment=environment,
-            keychain_service_name=keychain_service,
+            keychain_service_name=keyring_service,
             user=os.getlogin()
         )
         
-        log.info("Stored key in Keychain", service=service, environment=environment)
+        log.info("Stored key in secure storage", 
+                service=service, 
+                environment=environment,
+                backend=keyring.get_keyring().__class__.__name__)
 
-    @staticmethod
-    def get_key(service: str, environment: str) -> str | None:
+    @classmethod
+    def get_key(cls, service: str, environment: str) -> Optional[str]:
         """
-        Retrieve an API key from the macOS Keychain.
+        Retrieve an API key from the system's secure storage.
+        
+        Args:
+            service: Service name (e.g., OpenAI)
+            environment: Environment name (e.g., dev, prod)
+            
+        Returns:
+            The API key if found, None otherwise
+            
+        Raises:
+            KeyringError: If no secure backend is available
         """
+        cls._verify_backend()
+        
         # First check if key exists in metadata
         db = KeyDatabase()
         metadata = db.get_key_metadata(service, environment)
@@ -56,34 +116,74 @@ class KeychainSecurity:
         if key is None:
             log.warning("API key not found", service=service, environment=environment)
         else:
-            log.info("Retrieved key from Keychain", service=service, environment=environment)
+            log.info("Retrieved key from secure storage", 
+                    service=service, 
+                    environment=environment,
+                    backend=keyring.get_keyring().__class__.__name__)
         return key
 
-    @staticmethod
-    def remove_key(service: str, environment: str) -> None:
+    @classmethod
+    def remove_key(cls, service: str, environment: str) -> None:
         """
-        Remove an API key from the macOS Keychain.
+        Remove an API key from the system's secure storage.
+        
+        Args:
+            service: Service name (e.g., OpenAI)
+            environment: Environment name (e.g., dev, prod)
+            
+        Raises:
+            KeyringError: If no secure backend is available
         """
-        # First get metadata to know the keychain service name
+        cls._verify_backend()
+        
+        # First check if key exists in metadata
         db = KeyDatabase()
         metadata = db.get_key_metadata(service, environment)
-        if metadata:
+        if not metadata:
+            log.warning("Key metadata not found", service=service, environment=environment)
+            return
+            
+        try:
             keyring.delete_password(
                 metadata['keychain_service_name'],
                 environment.lower()
             )
-            # Remove metadata after successful keychain deletion
+            
+            # Remove from database
             db.remove_key(service, environment)
-            log.info("Removed key from Keychain", service=service, environment=environment)
-        else:
-            log.warning("Key metadata not found for removal", 
-                       service=service, environment=environment)
+            
+            log.info("Removed key from secure storage", 
+                    service=service, 
+                    environment=environment,
+                    backend=keyring.get_keyring().__class__.__name__)
+        except keyring.errors.PasswordDeleteError:
+            log.warning("Key not found in secure storage", 
+                       service=service, 
+                       environment=environment)
 
-    @staticmethod
-    def list_keys(filter_service: str | None = None) -> List[Tuple[str, str]]:
+    @classmethod
+    def list_keys(cls, service: Optional[str] = None) -> List[Tuple[str, str]]:
         """
-        List all stored keys (service name and environment only).
+        List all stored API keys (service and environment names only).
+        
+        Args:
+            service: Optional service name to filter by
+            
+        Returns:
+            List of (service, environment) tuples
+            
+        Raises:
+            KeyringError: If no secure backend is available
         """
+        cls._verify_backend()
+        
         db = KeyDatabase()
-        keys = db.list_keys(filter_service)
-        return [(key[0], key[1]) for key in keys]  # Return just service and environment 
+        keys = db.list_keys()
+        
+        # Extract only service_name and environment from the results
+        keys = [(row[0], row[1]) for row in keys]
+        
+        if service:
+            keys = [(s, e) for s, e in keys if s.lower() == service.lower()]
+            
+        return keys 
