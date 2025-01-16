@@ -319,14 +319,91 @@ def audit(service: Optional[str],
 @click.option("--service", required=False, help="Service name (e.g., OpenAI)")
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
 @click.option("--verbose", is_flag=True, default=False, help="Show detailed test information including API URL and response")
-def test_key(service: str | None, environment: str | None, verbose: bool) -> None:
+@click.option("--all", "test_all", is_flag=True, default=False, help="Test all stored keys")
+def test_key(service: str | None, environment: str | None, verbose: bool, test_all: bool) -> None:
     """Test an API key to verify it works with the service."""
     # Get list of stored keys
     stored_keys = KeychainSecurity.list_keys()
     if not stored_keys:
         click.echo("No keys found to test.")
         return
+    
+    if test_all:
+        click.echo("Testing all stored keys...\n")
+        results = []
         
+        # Group keys by service for better organization
+        service_keys = {}
+        for svc, env in stored_keys:
+            if svc not in service_keys:
+                service_keys[svc] = []
+            service_keys[svc].append(env)
+        
+        # Test each key
+        for svc in sorted(service_keys.keys()):
+            provider = get_provider_by_name(svc)
+            if not provider:
+                click.echo(f"⚠️  Skipping {svc}: Provider not supported")
+                continue
+                
+            service_name = provider.service_name
+            click.echo(f"\n{service_name}:")
+            
+            for env in sorted(service_keys[svc]):
+                key = KeychainSecurity.get_key(service_name, env)
+                if not key:
+                    click.echo(f"  [{env}] ⚠️  Key not found")
+                    continue
+                
+                try:
+                    if verbose:
+                        click.echo(f"  [{env}] Testing key...")
+                        click.echo(f"  API Endpoint: {provider.api_url}")
+                    
+                    result = provider.test_key(key)
+                    click.echo(f"  [{env}] ✅ Valid")
+                    
+                    if verbose:
+                        click.echo("  Response:")
+                        click.echo(f"  {result}")
+                    
+                    # Log success
+                    audit_logger = AuditLogger()
+                    audit_logger.log_event(
+                        event_type="test_key",
+                        service=service_name,
+                        environment=env,
+                        user=os.getlogin(),
+                        additional_data={
+                            "action": "test",
+                            "result": "success",
+                            "verbose": verbose,
+                            "batch": True
+                        }
+                    )
+                except Exception as e:
+                    click.echo(f"  [{env}] ❌ Invalid: {str(e)}")
+                    
+                    # Log failure
+                    audit_logger = AuditLogger()
+                    audit_logger.log_event(
+                        event_type="test_key",
+                        service=service_name,
+                        environment=env,
+                        user=os.getlogin(),
+                        additional_data={
+                            "action": "test",
+                            "result": "failed",
+                            "error": str(e),
+                            "verbose": verbose,
+                            "batch": True
+                        }
+                    )
+        
+        click.echo("\nKey testing complete.")
+        return
+        
+    # Single key testing logic (existing code)
     # Get unique services that have stored keys and map to canonical names
     stored_service_names = set(service.lower() for service, _ in stored_keys)
     available_providers = {
@@ -400,7 +477,8 @@ def test_key(service: str | None, environment: str | None, verbose: bool) -> Non
             additional_data={
                 "action": "test",
                 "result": "success",
-                "verbose": verbose
+                "verbose": verbose,
+                "batch": False
             }
         )
     except Exception as e:
@@ -419,7 +497,8 @@ def test_key(service: str | None, environment: str | None, verbose: bool) -> Non
                 "action": "test",
                 "result": "failed",
                 "error": str(e),
-                "verbose": verbose
+                "verbose": verbose,
+                "batch": False
             }
         )
 
