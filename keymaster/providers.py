@@ -11,6 +11,7 @@ class BaseProvider(ABC):
     
     service_name: ClassVar[str]  # Will be set by each provider
     description: ClassVar[str]  # Description of the provider's service
+    api_url: ClassVar[str]  # Base API URL for the provider
     
     @classmethod
     @abstractmethod
@@ -22,6 +23,7 @@ class OpenAIProvider(BaseProvider):
     """OpenAI API provider implementation."""
     service_name = "OpenAI"
     description = "OpenAI's GPT models and API services for natural language processing"
+    api_url = "https://api.openai.com/v1/models"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -32,7 +34,7 @@ class OpenAIProvider(BaseProvider):
         }
         
         response = requests.get(
-            "https://api.openai.com/v1/models",
+            OpenAIProvider.api_url,
             headers=headers
         )
         
@@ -45,17 +47,19 @@ class AnthropicProvider(BaseProvider):
     """Anthropic API provider implementation."""
     service_name = "Anthropic"
     description = "Anthropic's Claude models for advanced language understanding and generation"
+    api_url = "https://api.anthropic.com/v1/models"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
         """Test if an Anthropic API key is valid."""
         headers = {
             "x-api-key": api_key,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01"
         }
         
         response = requests.get(
-            "https://api.anthropic.com/v1/models",
+            AnthropicProvider.api_url,
             headers=headers
         )
         
@@ -68,6 +72,7 @@ class StabilityProvider(BaseProvider):
     """Stability AI provider implementation."""
     service_name = "Stability"
     description = "Stability AI's image generation and AI models"
+    api_url = "https://api.stability.ai/v1/engines/list"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -78,7 +83,7 @@ class StabilityProvider(BaseProvider):
         }
         
         response = requests.get(
-            "https://api.stability.ai/v1/engines/list",
+            StabilityProvider.api_url,
             headers=headers
         )
         
@@ -91,6 +96,7 @@ class DeepSeekProvider(BaseProvider):
     """DeepSeek API provider implementation."""
     service_name = "DeepSeek"
     description = "DeepSeek's language models with OpenAI-compatible API"
+    api_url = "https://api.deepseek.com/chat/completions"
     
     @staticmethod
     def test_key(api_key: str) -> Dict[str, Any]:
@@ -110,7 +116,7 @@ class DeepSeekProvider(BaseProvider):
         }
         
         response = requests.post(
-            "https://api.deepseek.com/chat/completions",
+            DeepSeekProvider.api_url,
             headers=headers,
             json=data
         )

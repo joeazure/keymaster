@@ -318,7 +318,8 @@ def audit(service: Optional[str],
 @cli.command()
 @click.option("--service", required=False, help="Service name (e.g., OpenAI)")
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
-def test_key(service: str | None, environment: str | None) -> None:
+@click.option("--verbose", is_flag=True, default=False, help="Show detailed test information including API URL and response")
+def test_key(service: str | None, environment: str | None, verbose: bool) -> None:
     """Test an API key to verify it works with the service."""
     # Get list of stored keys
     stored_keys = KeychainSecurity.list_keys()
@@ -326,46 +327,50 @@ def test_key(service: str | None, environment: str | None) -> None:
         click.echo("No keys found to test.")
         return
         
-    # Get unique services that have stored keys
-    available_services = sorted(set(service for service, _ in stored_keys))
+    # Get unique services that have stored keys and map to canonical names
+    stored_service_names = set(service.lower() for service, _ in stored_keys)
+    available_providers = {
+        name: provider 
+        for name, provider in get_providers().items()
+        if name in stored_service_names
+    }
+    
+    if not available_providers:
+        click.echo("No services found with stored keys.")
+        return
     
     # If service not provided, prompt for it from available services
     if not service:
-        if len(available_services) == 0:
-            click.echo("No services found with stored keys.")
-            return
-            
+        service_options = [provider.service_name for provider in available_providers.values()]
         service, _ = prompt_selection(
             "Select service with stored keys:", 
-            available_services,
+            service_options,
             show_descriptions=True
         )
     
     # Get available environments for the selected service
-    available_environments = sorted(set(
-        env for svc, env in stored_keys 
-        if svc.lower() == service.lower()
-    ))
-    
-    # If environment not provided, prompt for it from available environments
-    if not environment:
-        if len(available_environments) == 0:
-            click.echo(f"No environments found with stored keys for service {service}.")
-            return
-            
-        environment, _ = prompt_selection(
-            f"Select environment for {service}:", 
-            available_environments,
-            allow_new=False  # Don't allow new environments since we're testing existing keys
-        )
-    
-    # Get the canonical service name from the provider
     provider = get_provider_by_name(service)
     if not provider:
         click.echo(f"Unsupported service: {service}")
         return
         
     service_name = provider.service_name  # Use the canonical name
+    available_environments = sorted(set(
+        env for svc, env in stored_keys 
+        if svc.lower() == service_name.lower()
+    ))
+    
+    # If environment not provided, prompt for it from available environments
+    if not environment:
+        if len(available_environments) == 0:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+            
+        environment, _ = prompt_selection(
+            f"Select environment for {service_name}:", 
+            available_environments,
+            allow_new=False  # Don't allow new environments since we're testing existing keys
+        )
     
     # Verify the key exists
     key = KeychainSecurity.get_key(service_name, environment)
@@ -374,9 +379,16 @@ def test_key(service: str | None, environment: str | None) -> None:
         return
     
     try:
+        if verbose:
+            click.echo(f"\nTesting key for {service_name} ({environment})...")
+            click.echo(f"API Endpoint: {provider.api_url}")
+            
         result = provider.test_key(key)
-        click.echo(f"Key test successful for {service_name} ({environment})")
-        click.echo(f"Response: {result}")
+        click.echo(f"\n✅ Key test successful for {service_name} ({environment})")
+        
+        if verbose:
+            click.echo("\nAPI Response:")
+            click.echo(f"{result}")
         
         # Add audit logging for the test
         audit_logger = AuditLogger()
@@ -387,11 +399,14 @@ def test_key(service: str | None, environment: str | None) -> None:
             user=os.getlogin(),
             additional_data={
                 "action": "test",
-                "result": "success"
+                "result": "success",
+                "verbose": verbose
             }
         )
     except Exception as e:
-        click.echo(f"Key test failed: {str(e)}")
+        click.echo(f"\n❌ Key test failed for {service_name} ({environment})")
+        if verbose:
+            click.echo(f"\nError details: {str(e)}")
         
         # Log failed test attempt
         audit_logger = AuditLogger()
@@ -403,7 +418,8 @@ def test_key(service: str | None, environment: str | None) -> None:
             additional_data={
                 "action": "test",
                 "result": "failed",
-                "error": str(e)
+                "error": str(e),
+                "verbose": verbose
             }
         )
 
