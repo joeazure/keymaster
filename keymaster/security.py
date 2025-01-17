@@ -170,7 +170,7 @@ class KeyStore:
             service: Optional service name to filter by
             
         Returns:
-            List of (service, environment) tuples
+            List of (service, environment) tuples using canonical service names
             
         Raises:
             KeyringError: If no secure backend is available
@@ -183,7 +183,22 @@ class KeyStore:
         # Extract only service_name and environment from the results
         keys = [(row[0], row[1]) for row in keys]
         
+        # Convert service names to canonical form using providers
+        from keymaster.providers import get_provider_by_name
+        normalized_keys = []
+        for svc, env in keys:
+            provider = get_provider_by_name(svc)
+            if provider:
+                normalized_keys.append((provider.service_name, env))
+            else:
+                normalized_keys.append((svc, env))
+        
         if service:
-            keys = [(s, e) for s, e in keys if s.lower() == service.lower()]
+            # Filter using case-insensitive comparison
+            service_lower = service.lower()
+            normalized_keys = [
+                (s, e) for s, e in normalized_keys 
+                if s.lower() == service_lower
+            ]
             
-        return keys 
+        return normalized_keys 
