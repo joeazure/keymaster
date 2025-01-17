@@ -189,12 +189,14 @@ class KeyStore:
         for svc, env in keys:
             provider = get_provider_by_name(svc)
             if provider:
+                # Use the provider's canonical service name
                 normalized_keys.append((provider.service_name, env))
             else:
+                # Keep the original case for generic providers
                 normalized_keys.append((svc, env))
         
         if service:
-            # Filter using case-insensitive comparison
+            # Filter using case-insensitive comparison but preserve original case
             service_lower = service.lower()
             normalized_keys = [
                 (s, e) for s, e in normalized_keys 

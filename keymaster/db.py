@@ -59,7 +59,7 @@ class KeyDatabase:
                     (service_name, environment, keychain_service_name, 
                      created_at, updated_at, created_by, last_updated_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (service_name.lower(), environment.lower(), keychain_service_name,
+                """, (service_name, environment.lower(), keychain_service_name,
                      now, now, user, user))
             except sqlite3.IntegrityError:
                 # Update existing record
@@ -67,9 +67,9 @@ class KeyDatabase:
                     UPDATE key_metadata 
                     SET updated_at = ?, last_updated_by = ?, 
                         keychain_service_name = ?
-                    WHERE service_name = ? AND environment = ?
+                    WHERE LOWER(service_name) = LOWER(?) AND LOWER(environment) = LOWER(?)
                 """, (now, user, keychain_service_name, 
-                     service_name.lower(), environment.lower()))
+                     service_name, environment))
             conn.commit()
             
     def remove_key(self, service_name: str, environment: str) -> None:
@@ -77,8 +77,8 @@ class KeyDatabase:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 DELETE FROM key_metadata 
-                WHERE service_name = ? AND environment = ?
-            """, (service_name.lower(), environment.lower()))
+                WHERE LOWER(service_name) = LOWER(?) AND LOWER(environment) = LOWER(?)
+            """, (service_name, environment))
             conn.commit()
             
     def get_key_metadata(self, 
@@ -89,8 +89,8 @@ class KeyDatabase:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM key_metadata 
-                WHERE service_name = ? AND environment = ?
-            """, (service_name.lower(), environment.lower()))
+                WHERE LOWER(service_name) = LOWER(?) AND LOWER(environment) = LOWER(?)
+            """, (service_name, environment))
             row = cursor.fetchone()
             return dict(row) if row else None
             
@@ -104,9 +104,9 @@ class KeyDatabase:
                 cursor = conn.execute("""
                     SELECT service_name, environment, updated_at, last_updated_by 
                     FROM key_metadata 
-                    WHERE service_name = ?
+                    WHERE LOWER(service_name) = LOWER(?)
                     ORDER BY service_name, environment
-                """, (service_name.lower(),))
+                """, (service_name,))
             else:
                 cursor = conn.execute("""
                     SELECT service_name, environment, updated_at, last_updated_by 

@@ -95,13 +95,17 @@ class TestKeyStore:
             
     def test_store_key_case_insensitive(self, test_db):
         """Test that service names are case-insensitive"""
-        with patch('keyring.set_password'):
+        mock_provider = MagicMock()
+        mock_provider.service_name = "OpenAI"
+        
+        with patch('keyring.set_password'), \
+             patch('keymaster.providers.get_provider_by_name', return_value=mock_provider):
             KeyStore.store_key('OPENAI', 'test', 'test-key')
             KeyStore.store_key('openai', 'prod', 'test-key')
             
-        keys = KeyStore.list_keys(service='OpenAI')
-        assert len(keys) == 2
-        assert all(svc == 'OpenAI' for svc, _ in keys)
+            keys = KeyStore.list_keys(service='OpenAI')
+            assert len(keys) == 2
+            assert all(svc == 'OpenAI' for svc, _ in keys)
         
     def test_get_key_case_insensitive(self, test_db):
         """Test case-insensitive key retrieval"""

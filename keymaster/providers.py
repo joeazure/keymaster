@@ -1,139 +1,229 @@
 from abc import ABC, abstractmethod
 import os
-from typing import Any, Dict, ClassVar
+from typing import Any, Dict, ClassVar, Optional
 import structlog
 import requests
+from dataclasses import dataclass, asdict
+import json
 
 log = structlog.get_logger()
 
-class BaseProvider(ABC):
-    """Base class for API providers with common functionality."""
+def _get_providers_file() -> str:
+    """Get the path to the providers JSON file."""
+    home_dir = os.path.expanduser("~")
+    config_dir = os.path.join(home_dir, ".keymaster")
+    os.makedirs(config_dir, exist_ok=True)
+    return os.path.join(config_dir, "providers.json")
+
+def _load_generic_providers() -> None:
+    """Load generic providers from the JSON file."""
+    providers_file = _get_providers_file()
+    if not os.path.exists(providers_file):
+        return
+        
+    try:
+        with open(providers_file, 'r') as f:
+            providers_data = json.load(f)
+            
+        for provider_data in providers_data:
+            GenericProvider.create(**provider_data)
+    except Exception as e:
+        log.error("Failed to load generic providers", error=str(e))
+
+def _save_generic_providers() -> None:
+    """Save generic providers to the JSON file."""
+    providers_file = _get_providers_file()
     
-    service_name: ClassVar[str]  # Will be set by each provider
-    description: ClassVar[str]  # Description of the provider's service
-    api_url: ClassVar[str]  # Base API URL for the provider
+    # Get all generic providers
+    generic_providers = [
+        asdict(provider) for provider in _providers.values()
+        if isinstance(provider, GenericProvider)
+    ]
+    
+    try:
+        with open(providers_file, 'w') as f:
+            json.dump(generic_providers, f, indent=2)
+    except Exception as e:
+        log.error("Failed to save generic providers", error=str(e))
+
+class BaseProvider:
+    """Base class for API providers."""
+    service_name: str
+    description: str
+    api_url: str = ""
     
     @classmethod
-    @abstractmethod
-    def test_key(cls, api_key: str) -> Dict[str, Any]:
-        """Test if an API key is valid. Should be implemented by subclasses."""
-        pass
+    def test_key(cls, api_key: str) -> dict:
+        """Test if an API key is valid."""
+        raise NotImplementedError
+
+@dataclass
+class GenericProvider(BaseProvider):
+    """
+    A generic provider for any API service.
+    Supports optional key validation through a test URL.
+    """
+    service_name: str
+    description: str
+    test_url: Optional[str] = None
+    
+    @classmethod
+    def create(cls, 
+               service_name: str, 
+               description: str, 
+               test_url: Optional[str] = None) -> 'GenericProvider':
+        """
+        Create a new generic provider.
+        
+        Args:
+            service_name: The canonical name of the service
+            description: A description of what the service provides
+            test_url: Optional URL to test API key validity
+            
+        Returns:
+            A configured GenericProvider instance
+        """
+        provider = cls(
+            service_name=service_name,
+            description=description,
+            test_url=test_url
+        )
+        
+        # Register the provider
+        _register_provider(provider)
+        
+        # Save to file
+        _save_generic_providers()
+        
+        return provider
+        
+    def test_key(self, api_key: str) -> dict:
+        """
+        Test if an API key is valid using the provided test URL.
+        
+        Args:
+            api_key: The API key to test
+            
+        Returns:
+            A dict containing the test response
+            
+        Raises:
+            ValueError: If no test URL was provided
+            requests.RequestException: If the test request fails
+        """
+        if not self.test_url:
+            return {"status": "untested", "message": "No test URL provided"}
+            
+        # Add the API key as a query parameter if not already in URL
+        url = self.test_url
+        if '?' in url:
+            url += f"&appid={api_key}"
+        else:
+            url += f"?appid={api_key}"
+            
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        return {
+            "status": "valid",
+            "message": "API key is valid",
+            "response": response.json()
+        }
 
 class OpenAIProvider(BaseProvider):
-    """OpenAI API provider implementation."""
     service_name = "OpenAI"
-    description = "OpenAI's GPT models and API services for natural language processing"
-    api_url = "https://api.openai.com/v1/models"
+    description = "OpenAI's GPT models and other AI services including DALL-E and embeddings"
+    api_url = "https://api.openai.com/v1/chat/completions"
     
-    @staticmethod
-    def test_key(api_key: str) -> Dict[str, Any]:
-        """Test if an OpenAI API key is valid."""
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.get(
-            OpenAIProvider.api_url,
-            headers=headers
+    @classmethod
+    def test_key(cls, api_key: str) -> dict:
+        response = requests.post(
+            cls.api_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": "gpt-3.5-turbo",
+                "messages": [{"role": "user", "content": "Say 'test' if you can read this."}],
+                "max_tokens": 10
+            }
         )
-        
-        if response.status_code == 200:
-            return {"status": "valid", "models": response.json()}
-        else:
-            raise ValueError(f"Invalid API key: {response.text}")
+        response.raise_for_status()
+        return response.json()
 
 class AnthropicProvider(BaseProvider):
-    """Anthropic API provider implementation."""
     service_name = "Anthropic"
-    description = "Anthropic's Claude models for advanced language understanding and generation"
-    api_url = "https://api.anthropic.com/v1/models"
+    description = "Anthropic's Claude models for natural language understanding and generation"
+    api_url = "https://api.anthropic.com/v1/messages"
     
-    @staticmethod
-    def test_key(api_key: str) -> Dict[str, Any]:
-        """Test if an Anthropic API key is valid."""
-        headers = {
-            "x-api-key": api_key,
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01"
-        }
-        
-        response = requests.get(
-            AnthropicProvider.api_url,
-            headers=headers
+    @classmethod
+    def test_key(cls, api_key: str) -> dict:
+        response = requests.post(
+            cls.api_url,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01"
+            },
+            json={
+                "model": "claude-3-opus-20240229",
+                "max_tokens": 10,
+                "messages": [{"role": "user", "content": "Say 'test' if you can read this."}]
+            }
         )
-        
-        if response.status_code == 200:
-            return {"status": "valid", "models": response.json()}
-        else:
-            raise ValueError(f"Invalid API key: {response.text}")
+        response.raise_for_status()
+        return response.json()
 
 class StabilityProvider(BaseProvider):
-    """Stability AI provider implementation."""
     service_name = "Stability"
     description = "Stability AI's image generation and AI models"
     api_url = "https://api.stability.ai/v1/engines/list"
     
-    @staticmethod
-    def test_key(api_key: str) -> Dict[str, Any]:
-        """Test if a Stability AI key is valid."""
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
+    @classmethod
+    def test_key(cls, api_key: str) -> dict:
         response = requests.get(
-            StabilityProvider.api_url,
-            headers=headers
+            cls.api_url,
+            headers={"Authorization": f"Bearer {api_key}"}
         )
-        
-        if response.status_code == 200:
-            return {"status": "valid", "engines": response.json()}
-        else:
-            raise ValueError(f"Invalid API key: {response.text}")
+        response.raise_for_status()
+        return response.json()
 
 class DeepSeekProvider(BaseProvider):
-    """DeepSeek API provider implementation."""
     service_name = "DeepSeek"
-    description = "DeepSeek's language models with OpenAI-compatible API"
-    api_url = "https://api.deepseek.com/chat/completions"
+    description = "DeepSeek's language models and AI services"
+    api_url = "https://api.deepseek.com/v1/chat/completions"
     
-    @staticmethod
-    def test_key(api_key: str) -> Dict[str, Any]:
-        """Test if a DeepSeek API key is valid."""
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        data = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hello!"}
-            ],
-            "stream": False
-        }
-        
+    @classmethod
+    def test_key(cls, api_key: str) -> dict:
         response = requests.post(
-            DeepSeekProvider.api_url,
-            headers=headers,
-            json=data
+            cls.api_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": "Say 'test' if you can read this."}],
+                "max_tokens": 10
+            }
         )
-        
-        if response.status_code == 200:
-            return {"status": "valid", "model": "deepseek-chat"}
-        else:
-            raise ValueError(f"Invalid API key: {response.text}")
+        response.raise_for_status()
+        return response.json()
 
-def get_providers() -> Dict[str, type[BaseProvider]]:
-    """Get all available providers."""
-    return {
-        provider.service_name.lower(): provider
-        for provider in [OpenAIProvider, AnthropicProvider, StabilityProvider, DeepSeekProvider]
-    }
+# Dictionary to store all providers
+_providers: Dict[str, BaseProvider] = {}
 
-def get_provider_by_name(name: str) -> type[BaseProvider]:
+def _register_provider(provider: BaseProvider) -> None:
+    """Register a provider in the global provider dictionary."""
+    _providers[provider.service_name.lower()] = provider
+
+# Register built-in providers
+_register_provider(OpenAIProvider)
+_register_provider(AnthropicProvider)
+_register_provider(StabilityProvider)
+_register_provider(DeepSeekProvider)
+
+# Load any saved generic providers
+_load_generic_providers()
+
+def get_providers() -> Dict[str, BaseProvider]:
+    """Get all registered providers."""
+    return _providers
+
+def get_provider_by_name(name: str) -> Optional[BaseProvider]:
     """Get a provider by name (case-insensitive)."""
-    providers = get_providers()
-    return providers.get(name.lower()) 
+    return _providers.get(name.lower()) 

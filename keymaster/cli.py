@@ -628,5 +628,43 @@ def rotate_key(service: str, environment: str) -> None:
     click.echo(f"Successfully rotated key for {service} ({environment})")
 
 
+@cli.command()
+def register_provider() -> None:
+    """Register a new generic API provider."""
+    from keymaster.providers import GenericProvider
+    
+    # Get provider details
+    display_name = click.prompt("Service name (e.g., OpenWeatherMap)")
+    description = click.prompt("Service description")
+    test_url = click.prompt("Test URL (optional, press Enter to skip)", default="", show_default=False)
+    
+    # Create the provider with lowercase service name
+    provider = GenericProvider.create(
+        service_name=display_name.lower(),  # Store as lowercase
+        description=description,
+        test_url=test_url if test_url else None
+    )
+    
+    # Display using original case
+    click.echo(f"\nRegistered new provider: {display_name}")
+    click.echo(f"Description: {provider.description}")
+    if provider.test_url:
+        click.echo(f"Test URL: {provider.test_url}")
+    
+    # Add audit logging
+    audit_logger = AuditLogger()
+    audit_logger.log_event(
+        event_type="register_provider",
+        service=display_name.lower(),  # Log with lowercase name for consistency
+        environment="global",  # Provider registration is global, not environment-specific
+        user=os.getenv("USER", "unknown"),
+        additional_data={
+            "display_name": display_name,  # Keep original case in metadata
+            "description": description,
+            "test_url": test_url if test_url else None
+        }
+    )
+
+
 if __name__ == "__main__":
     cli() 
