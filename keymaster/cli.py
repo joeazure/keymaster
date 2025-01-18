@@ -10,6 +10,8 @@ from keymaster.utils import prompt_selection
 from keymaster.providers import get_providers, get_provider_by_name
 import sys
 from keyring.errors import KeyringError
+from collections import defaultdict
+import locale
 
 # Default environments
 DEFAULT_ENVIRONMENTS = ["dev", "staging", "prod"]
@@ -248,18 +250,46 @@ def list_keys(service: str | None, show_values: bool) -> None:
     """
     List stored API keys in the macOS Keychain (service names only by default).
     """
+    # Get all keys with their metadata
     keys = KeyStore.list_keys(service)
     if not keys:
         click.echo("No keys found.")
-    else:
-        click.echo("Stored keys:")
-        for svc, env in keys:
+        return
+        
+    # Group keys by service
+    service_groups = defaultdict(list)
+    for svc, env, updated_at, updated_by in keys:
+        # Convert ISO timestamp to datetime and localize it
+        dt = datetime.fromisoformat(updated_at).astimezone()
+        
+        # Format date based on locale
+        locale.setlocale(locale.LC_TIME, '')  # Use system locale
+        if locale.getlocale()[0] in ['en_US', 'en_CA']:  # US/Canada format
+            date_str = dt.strftime("%m/%d/%Y %H:%M")
+        else:  # Rest of world format
+            date_str = dt.strftime("%d/%m/%Y %H:%M")
+            
+        service_groups[svc].append((env, date_str, updated_by))
+    
+    # Display grouped and sorted keys
+    click.echo("Stored keys:")
+    for service_name in sorted(service_groups.keys()):
+        click.echo(f"\nService: {service_name}")
+        
+        # Sort environments within each service
+        envs = sorted(service_groups[service_name])
+        for env, date_str, updated_by in envs:
             if show_values:
-                key_value = KeyStore.get_key(svc, env)
-                click.echo(f" - Service: {svc}, Environment: {env}")
-                click.echo(f"   Key: {key_value}")
+                key_value = KeyStore.get_key(service_name, env)
+                click.echo(f"  Environment: {env}")
+                click.echo(f"    Last updated: {date_str} by {updated_by}")
+                click.echo(f"    Key: {key_value}")
             else:
-                click.echo(f" - Service: {svc}, Environment: {env}")
+                click.echo(f"  Environment: {env}")
+                click.echo(f"    Last updated: {date_str} by {updated_by}")
+    
+    if show_values:
+        click.echo("\nNote: Be careful with displayed key values!")
 
 
 @cli.command()

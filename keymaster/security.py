@@ -162,7 +162,7 @@ class KeyStore:
                        environment=environment)
 
     @classmethod
-    def list_keys(cls, service: Optional[str] = None) -> List[Tuple[str, str]]:
+    def list_keys(cls, service: Optional[str] = None) -> List[Tuple[str, str, str, str]]:
         """
         List all stored API keys (service and environment names only).
         
@@ -170,7 +170,7 @@ class KeyStore:
             service: Optional service name to filter by
             
         Returns:
-            List of (service, environment) tuples using canonical service names
+            List of (service, environment, updated_at, last_updated_by) tuples using canonical service names
             
         Raises:
             KeyringError: If no secure backend is available
@@ -178,28 +178,25 @@ class KeyStore:
         cls._verify_backend()
         
         db = KeyDatabase()
-        keys = db.list_keys()
-        
-        # Extract only service_name and environment from the results
-        keys = [(row[0], row[1]) for row in keys]
+        keys = db.list_keys(service)
         
         # Convert service names to canonical form using providers
         from keymaster.providers import get_provider_by_name
         normalized_keys = []
-        for svc, env in keys:
+        for svc, env, updated_at, updated_by in keys:
             provider = get_provider_by_name(svc)
             if provider:
                 # Use the provider's canonical service name
-                normalized_keys.append((provider.service_name, env))
+                normalized_keys.append((provider.service_name, env, updated_at, updated_by))
             else:
                 # Keep the original case for generic providers
-                normalized_keys.append((svc, env))
+                normalized_keys.append((svc, env, updated_at, updated_by))
         
         if service:
             # Filter using case-insensitive comparison but preserve original case
             service_lower = service.lower()
             normalized_keys = [
-                (s, e) for s, e in normalized_keys 
+                (s, e, u, b) for s, e, u, b in normalized_keys 
                 if s.lower() == service_lower
             ]
             
