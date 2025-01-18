@@ -64,8 +64,10 @@ class TestKeyStore:
         # List only OpenAI keys
         keys = KeyStore.list_keys(service='OpenAI')
         assert len(keys) == 2
-        assert ('OpenAI', 'dev') in keys
-        assert ('OpenAI', 'prod') in keys
+        # Check only service and environment, ignoring timestamps and user
+        key_pairs = [(svc, env) for svc, env, _, _ in keys]
+        assert ('OpenAI', 'dev') in key_pairs
+        assert ('OpenAI', 'prod') in key_pairs
         
     def test_list_keys_all(self, test_db):
         """Test listing all keys"""
@@ -76,8 +78,10 @@ class TestKeyStore:
             
         keys = KeyStore.list_keys()
         assert len(keys) == 2
-        assert ('OpenAI', 'dev') in keys
-        assert ('Anthropic', 'dev') in keys
+        # Check only service and environment, ignoring timestamps and user
+        key_pairs = [(svc, env) for svc, env, _, _ in keys]
+        assert ('OpenAI', 'dev') in key_pairs
+        assert ('Anthropic', 'dev') in key_pairs
         
     def test_remove_nonexistent_key(self, test_db):
         """Test removing a key that doesn't exist"""
@@ -105,7 +109,9 @@ class TestKeyStore:
             
             keys = KeyStore.list_keys(service='OpenAI')
             assert len(keys) == 2
-            assert all(svc == 'OpenAI' for svc, _ in keys)
+            # Check only service names, ignoring environment, timestamps and user
+            service_names = [svc for svc, _, _, _ in keys]
+            assert all(svc == 'OpenAI' for svc in service_names)
         
     def test_get_key_case_insensitive(self, test_db):
         """Test case-insensitive key retrieval"""
