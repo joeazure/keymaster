@@ -17,6 +17,8 @@ class KeyDatabase:
     def __init__(self):
         self.db_path = self._get_db_path()
         self._init_db()
+        # Run service name normalization on startup
+        self.normalize_service_names()
         
     def _get_db_path(self) -> str:
         """Get the path to the SQLite database file."""
@@ -114,3 +116,23 @@ class KeyDatabase:
                     ORDER BY service_name, environment
                 """)
             return cursor.fetchall() 
+
+    def normalize_service_names(self) -> None:
+        """
+        Normalize all service names in the database to lowercase.
+        This is a one-time migration to ensure consistency.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            # First get all unique service names
+            cursor.execute("SELECT DISTINCT service_name FROM key_metadata")
+            service_names = cursor.fetchall()
+            
+            # Update any that aren't lowercase
+            for (service_name,) in service_names:
+                if service_name != service_name.lower():
+                    cursor.execute(
+                        "UPDATE key_metadata SET service_name = ? WHERE service_name = ?",
+                        (service_name.lower(), service_name)
+                    )
+            conn.commit() 

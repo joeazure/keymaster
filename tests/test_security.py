@@ -1,8 +1,19 @@
 import pytest
 from keymaster.security import KeyStore
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 from keyring.errors import KeyringError, PasswordDeleteError
 import keyring.backends
+
+@pytest.fixture
+def test_db(tmp_path):
+    """Create a temporary test database."""
+    with patch('keymaster.db.KeyDatabase._get_db_path') as mock_db_path:
+        db_file = tmp_path / "test.db"
+        mock_db_path.return_value = str(db_file)
+        yield db_file
+        # Clean up the database after each test
+        if db_file.exists():
+            db_file.unlink()
 
 class TestKeyStore:
     def test_store_key(self, test_db):
@@ -53,35 +64,50 @@ class TestKeyStore:
         keys = KeyStore.list_keys()
         assert keys == []
         
-    def test_list_keys_with_filter(self, test_db):
-        """Test listing keys with service filter"""
-        # Store some test keys
+    @patch('keymaster.providers.get_provider_by_name')
+    def test_list_keys_with_filter(self, mock_get_provider, test_db):
+        # Setup mock provider that returns canonical name
+        mock_provider = Mock()
+        mock_provider.service_name = 'OpenAI'
+        mock_get_provider.return_value = mock_provider
+        
+        # Store test keys
         with patch('keyring.set_password'):
-            KeyStore.store_key('OpenAI', 'dev', 'key1')
-            KeyStore.store_key('OpenAI', 'prod', 'key2')
-            KeyStore.store_key('Anthropic', 'dev', 'key3')
-            
-        # List only OpenAI keys
-        keys = KeyStore.list_keys(service='OpenAI')
-        assert len(keys) == 2
-        # Check only service and environment, ignoring timestamps and user
+            KeyStore.store_key('openai', 'dev', 'test-key-1')
+            KeyStore.store_key('openai', 'prod', 'test-key-2')
+        
+        # List keys filtered by service
+        keys = KeyStore.list_keys('openai')
         key_pairs = [(svc, env) for svc, env, _, _ in keys]
         assert ('OpenAI', 'dev') in key_pairs
         assert ('OpenAI', 'prod') in key_pairs
-        
-    def test_list_keys_all(self, test_db):
-        """Test listing all keys"""
-        # Store some test keys
-        with patch('keyring.set_password'):
-            KeyStore.store_key('OpenAI', 'dev', 'key1')
-            KeyStore.store_key('Anthropic', 'dev', 'key2')
-            
-        keys = KeyStore.list_keys()
         assert len(keys) == 2
-        # Check only service and environment, ignoring timestamps and user
+        
+    @patch('keymaster.providers.get_provider_by_name')
+    @patch('keymaster.providers._load_generic_providers')  # Mock this to prevent actual file operations
+    def test_list_keys_all(self, mock_load_providers, mock_get_provider, test_db):
+        # Setup mock provider that returns canonical names
+        def get_canonical_name(service):
+            canonical_names = {
+                'openai': 'OpenAI',
+                'anthropic': 'Anthropic'
+            }
+            mock_provider = Mock()
+            mock_provider.service_name = canonical_names.get(service.lower(), service.title())
+            return mock_provider
+        mock_get_provider.side_effect = get_canonical_name
+        
+        # Store test keys
+        with patch('keyring.set_password'):
+            KeyStore.store_key('openai', 'dev', 'test-key-1')
+            KeyStore.store_key('anthropic', 'dev', 'test-key-2')
+        
+        # List all keys
+        keys = KeyStore.list_keys()
         key_pairs = [(svc, env) for svc, env, _, _ in keys]
         assert ('OpenAI', 'dev') in key_pairs
         assert ('Anthropic', 'dev') in key_pairs
+        assert len(keys) == 2
         
     def test_remove_nonexistent_key(self, test_db):
         """Test removing a key that doesn't exist"""

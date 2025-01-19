@@ -67,20 +67,23 @@ class KeyStore:
             KeyringError: If no secure backend is available
         """
         cls._verify_backend()
-        keyring_service = cls._get_keyring_service_name(service, environment)
+        
+        # Always use lowercase for storage
+        service_lower = service.lower()
+        keyring_service = cls._get_keyring_service_name(service_lower, environment)
         keyring.set_password(keyring_service, environment.lower(), api_key)
         
-        # Store metadata in SQLite
+        # Store metadata in SQLite with lowercase service name
         db = KeyDatabase()
         db.add_key(
-            service_name=service,
+            service_name=service_lower,  # Store as lowercase
             environment=environment,
             keychain_service_name=keyring_service,
             user=os.getlogin()
         )
         
         log.info("Stored key in secure storage", 
-                service=service, 
+                service=service,  # Log original case for readability
                 environment=environment,
                 backend=keyring.get_keyring().__class__.__name__)
 
@@ -181,7 +184,11 @@ class KeyStore:
         keys = db.list_keys(service)
         
         # Convert service names to canonical form using providers
-        from keymaster.providers import get_provider_by_name
+        from keymaster.providers import get_provider_by_name, _load_generic_providers
+        
+        # Ensure generic providers are loaded
+        _load_generic_providers()
+        
         normalized_keys = []
         for svc, env, updated_at, updated_by in keys:
             provider = get_provider_by_name(svc)

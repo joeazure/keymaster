@@ -542,27 +542,66 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
 @click.option("--output", required=False, help="Output .env file path")
 def generate_env(service: str | None, environment: str | None, output: str | None) -> None:
     """Generate a .env file for the specified service and environment."""
-    # If service not provided, prompt for it
+    from keymaster.providers import get_providers, get_provider_by_name, _load_generic_providers
+    
+    # Ensure generic providers are loaded
+    _load_generic_providers()
+    
+    # Get list of stored keys
+    stored_keys = KeyStore.list_keys()
+    if not stored_keys:
+        click.echo("No keys found.")
+        return
+    
+    # Get unique services that have stored keys and map to canonical names
+    stored_service_names = set(service.lower() for service, _, _, _ in stored_keys)
+    available_providers = {
+        name: provider 
+        for name, provider in get_providers().items()
+        if name in stored_service_names
+    }
+    
+    if not available_providers:
+        click.echo("No services found with stored keys.")
+        return
+    
+    # If service not provided, prompt for it from available services
     if not service:
-        available_services = list(provider.service_name for provider in get_providers().values())
-        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
+        service_options = [provider.service_name for provider in available_providers.values()]
+        service, _ = prompt_selection(
+            "Select service with stored keys:", 
+            service_options,
+            show_descriptions=True
+        )
     
-    # If environment not provided, prompt for it
-    if not environment:
-        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
-    
-    # If output not provided, prompt for it with a default
-    if not output:
-        default_output = ".env"
-        output = click.prompt("Output file path", default=default_output)
-    
-    # Get the canonical service name
+    # Get available environments for the selected service
     provider = get_provider_by_name(service)
     if not provider:
         click.echo(f"Unsupported service: {service}")
         return
         
     service_name = provider.service_name  # Use the canonical name
+    available_environments = sorted(set(
+        env for svc, env, _, _ in stored_keys 
+        if svc.lower() == service_name.lower()
+    ))
+    
+    # If environment not provided, prompt for it from available environments
+    if not environment:
+        if len(available_environments) == 0:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+            
+        environment, _ = prompt_selection(
+            f"Select environment for {service_name}:", 
+            available_environments,
+            allow_new=False  # Don't allow new environments since we're using existing keys
+        )
+    
+    # If output not provided, prompt for it with a default
+    if not output:
+        default_output = ".env"
+        output = click.prompt("Output file path", default=default_output)
     
     # Get the key
     key = KeyStore.get_key(service_name, environment)
@@ -570,18 +609,8 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
         click.echo(f"No key found for {service_name} in {environment} environment.")
         return
         
-    env_vars = {
-        "OPENAI": "OPENAI_API_KEY",
-        "ANTHROPIC": "ANTHROPIC_API_KEY",
-        "STABILITY": "STABILITY_API_KEY",
-        "DEEPSEEK": "DEEPSEEK_API_KEY"
-    }
-    
-    if service_name.upper() not in env_vars:
-        click.echo(f"Unsupported service: {service_name}")
-        return
-        
-    env_var_name = env_vars[service_name.upper()]
+    # Get environment variable name for the service
+    env_var_name = f"{service_name.upper()}_API_KEY"
     
     try:
         EnvManager.generate_env_file(output, {env_var_name: key})
