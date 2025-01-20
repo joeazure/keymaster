@@ -203,15 +203,31 @@ def remove_key(service: str | None, environment: str | None) -> None:
     """
     Remove a service API key from the macOS Keychain.
     """
+    # Get list of stored keys with metadata
+    stored_keys = KeyStore.list_keys()
+    if not stored_keys:
+        click.echo("No keys found.")
+        return
+    
     # If service not provided, prompt for it
     if not service:
-        available_services = list(provider.service_name for provider in get_providers().values())
-        service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
+        # Get unique services that have stored keys
+        available_services = {
+            provider.service_name 
+            for provider in get_providers().values()
+            if any(svc.lower() == provider.service_name.lower() for svc, _, _, _ in stored_keys)
+        }
+        if not available_services:
+            click.echo("No services found with stored keys.")
+            return
+            
+        service, _ = prompt_selection(
+            "Select service:", 
+            sorted(available_services), 
+            show_descriptions=True
+        )
     
-    # If environment not provided, prompt for it
-    if not environment:
-        environment, _ = prompt_selection("Select environment:", DEFAULT_ENVIRONMENTS, allow_new=True)
-    
+    # Get the canonical service name
     provider = get_provider_by_name(service)
     if not provider:
         click.echo(f"Unsupported service: {service}")
@@ -219,14 +235,49 @@ def remove_key(service: str | None, environment: str | None) -> None:
         
     service_name = provider.service_name
     
-    # First check if the key exists
-    existing_key = KeyStore.get_key(service_name, environment)
-    if not existing_key:
+    # Get environments that have metadata entries for this service
+    available_environments = sorted(set(
+        env for svc, env, _, _ in stored_keys 
+        if svc.lower() == service_name.lower()
+    ))
+    
+    if not available_environments:
+        click.echo(f"No keys found for service '{service_name}'")
+        return
+    
+    # If environment not provided, prompt for it from available environments
+    if not environment:
+        environment, _ = prompt_selection(
+            f"Select environment for {service_name}:", 
+            available_environments,
+            allow_new=False  # Don't allow new environments since we're removing existing keys
+        )
+    elif environment not in available_environments:
+        click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
+        click.echo(f"Available environments: {', '.join(available_environments)}")
+        return
+    
+    # First check if the key exists in metadata
+    metadata_exists = KeyStore.get_key_metadata(service_name, environment)
+    if not metadata_exists:
         click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
         return
 
     try:
-        KeyStore.remove_key(service_name, environment)
+        # Try to remove from keystore if it exists
+        key_exists = KeyStore.get_key(service_name, environment)
+        if key_exists:
+            try:
+                KeyStore.remove_key(service_name, environment)
+                click.echo(f"Key for service '{service_name}' ({environment}) removed from secure storage.")
+            except Exception as e:
+                click.echo(f"Warning: Could not remove key from secure storage: {str(e)}")
+        else:
+            click.echo(f"Note: No key found in secure storage for '{service_name}' ({environment})")
+        
+        # Always remove the metadata
+        KeyStore.remove_key_metadata(service_name, environment)
+        click.echo(f"Metadata for service '{service_name}' ({environment}) removed from database.")
         
         # Add audit logging
         audit_logger = AuditLogger()
@@ -234,13 +285,15 @@ def remove_key(service: str | None, environment: str | None) -> None:
             event_type="remove_key",
             service=service_name,
             environment=environment,
-            user=os.getlogin(),
-            additional_data={"action": "remove"}
+            user=os.getenv("USER", "unknown"),
+            additional_data={
+                "action": "remove",
+                "key_existed": bool(key_exists),
+                "metadata_existed": True
+            }
         )
-        
-        click.echo(f"Key for service '{service_name}' ({environment}) removed from Keychain.")
     except Exception as e:
-        click.echo(f"Error removing key: {str(e)}")
+        click.echo(f"Error during removal: {str(e)}")
 
 
 @cli.command()
@@ -367,7 +420,7 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
         
         # Group keys by service for better organization
         service_keys = {}
-        for svc, env in stored_keys:
+        for svc, env, _, _ in stored_keys:
             if svc not in service_keys:
                 service_keys[svc] = []
             service_keys[svc].append(env)
@@ -438,7 +491,7 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
         
     # Single key testing logic (existing code)
     # Get unique services that have stored keys and map to canonical names
-    stored_service_names = set(service.lower() for service, _ in stored_keys)
+    stored_service_names = set(service.lower() for service, _, _, _ in stored_keys)
     available_providers = {
         name: provider 
         for name, provider in get_providers().items()
@@ -465,22 +518,28 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
         return
         
     service_name = provider.service_name  # Use the canonical name
+    
+    # Get environments that actually have stored keys for this service
     available_environments = sorted(set(
-        env for svc, env in stored_keys 
+        env for svc, env, _, _ in stored_keys 
         if svc.lower() == service_name.lower()
     ))
     
+    if len(available_environments) == 0:
+        click.echo(f"No environments found with stored keys for service {service_name}.")
+        return
+    
     # If environment not provided, prompt for it from available environments
     if not environment:
-        if len(available_environments) == 0:
-            click.echo(f"No environments found with stored keys for service {service_name}.")
-            return
-            
         environment, _ = prompt_selection(
             f"Select environment for {service_name}:", 
             available_environments,
             allow_new=False  # Don't allow new environments since we're testing existing keys
         )
+    elif environment not in available_environments:
+        click.echo(f"No key found for {service_name} in {environment} environment.")
+        click.echo(f"Available environments: {', '.join(available_environments)}")
+        return
     
     # Verify the key exists
     key = KeyStore.get_key(service_name, environment)
@@ -581,22 +640,28 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
         return
         
     service_name = provider.service_name  # Use the canonical name
+    
+    # Get environments that actually have stored keys for this service
     available_environments = sorted(set(
         env for svc, env, _, _ in stored_keys 
         if svc.lower() == service_name.lower()
     ))
     
+    if len(available_environments) == 0:
+        click.echo(f"No environments found with stored keys for service {service_name}.")
+        return
+    
     # If environment not provided, prompt for it from available environments
     if not environment:
-        if len(available_environments) == 0:
-            click.echo(f"No environments found with stored keys for service {service_name}.")
-            return
-            
         environment, _ = prompt_selection(
             f"Select environment for {service_name}:", 
             available_environments,
             allow_new=False  # Don't allow new environments since we're using existing keys
         )
+    elif environment not in available_environments:
+        click.echo(f"No key found for {service_name} in {environment} environment.")
+        click.echo(f"Available environments: {', '.join(available_environments)}")
+        return
     
     # If output not provided, prompt for it with a default
     if not output:

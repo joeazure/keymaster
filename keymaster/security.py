@@ -208,3 +208,32 @@ class KeyStore:
             ]
             
         return normalized_keys 
+
+    @classmethod
+    def get_key_metadata(cls, service: str, environment: str) -> Optional[dict]:
+        """
+        Get metadata for a key without retrieving the key itself.
+        
+        Args:
+            service: Service name
+            environment: Environment name
+            
+        Returns:
+            Dict with metadata if found, None otherwise
+        """
+        cls._verify_backend()
+        db = KeyDatabase()
+        return db.get_key_metadata(service, environment)
+        
+    @classmethod
+    def remove_key_metadata(cls, service: str, environment: str) -> None:
+        """
+        Remove metadata for a key without touching the key in secure storage.
+        
+        Args:
+            service: Service name
+            environment: Environment name
+        """
+        cls._verify_backend()
+        db = KeyDatabase()
+        db.remove_key(service, environment) 
