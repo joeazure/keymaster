@@ -59,33 +59,50 @@ class AuditLogger:
         return self.fernet.decrypt(encrypted_data.encode()).decode()
 
     def log_event(self, 
-                  event_type: str, 
-                  service: str,
-                  environment: str,
-                  user: str,
-                  sensitive_data: Optional[str] = None,
-                  additional_data: Optional[Dict[str, Any]] = None) -> None:
+                event_type: str,
+                user: str,
+                service: str | None = None,
+                environment: str | None = None,
+                sensitive_data: str | None = None,
+                additional_data: dict | None = None) -> None:
         """
-        Log an audit event with optional encrypted sensitive data.
-        """
-        timestamp = datetime.utcnow().isoformat()
+        Log an audit event.
         
+        Args:
+            event_type: Type of event (e.g., add_key, remove_key)
+            user: Username performing the action
+            service: Optional service name (e.g., OpenAI)
+            environment: Optional environment (e.g., dev, prod)
+            sensitive_data: Optional sensitive data to encrypt
+            additional_data: Optional additional metadata
+        """
+        now = datetime.utcnow().isoformat()
+        
+        # Create the event data
         event = {
-            "timestamp": timestamp,
+            "timestamp": now,
             "event_type": event_type,
-            "service": service,
-            "environment": environment,
-            "user": user,
+            "user": user
         }
         
+        # Add optional fields if provided
+        if service:
+            event["service"] = service
+        if environment:
+            event["environment"] = environment
+            
+        # Encrypt sensitive data if provided
         if sensitive_data:
             event["encrypted_data"] = self._encrypt_sensitive_data(sensitive_data)
             
+        # Add any additional metadata
         if additional_data:
             event["metadata"] = additional_data
-
-        with open(self._get_log_path(), "a") as f:
-            f.write(json.dumps(event) + "\n")
+            
+        # Write to log file
+        with open(self._get_log_path(), 'a') as f:
+            json.dump(event, f)
+            f.write('\n')
             
         log.info("Audit event logged", 
                 event_type=event_type, 

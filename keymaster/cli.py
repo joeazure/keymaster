@@ -92,7 +92,7 @@ def init() -> None:
     audit_logger = AuditLogger()
     audit_logger.log_event(
         event_type="init",
-        user=os.getlogin(),
+        user=os.getenv("USER", "unknown"),
         additional_data={
             "action": "init",
             "platform": sys.platform,
