@@ -23,7 +23,10 @@ Secure API key management for AI services, with support for OpenAI, Anthropic, S
 ## Requirements
 
 - Python 3.11 or higher
-- macOS (Keychain support)
+- Supported Operating Systems:
+  - macOS: Uses Keychain
+  - Linux: Uses SecretService (GNOME Keyring/KWallet)
+  - Windows: Uses Windows Credential Locker
 - Internet connection for API validation
 
 ## Installation
@@ -182,4 +185,71 @@ pytest                    # Run tests with coverage
 5. Submit a pull request
 
 ## License
+
+
+### CLI Commands
+
+```bash
+keymaster init           # Initialize in project directory
+keymaster add-key       # Add new API key
+keymaster remove-key    # Remove stored key
+keymaster list-keys     # List available keys
+keymaster test-key      # Test API key validity
+keymaster generate-env  # Generate .env file
+keymaster rotate-key    # Rotate API keys
+keymaster audit         # View audit log
+keymaster config        # Manage configuration
+keymaster register-provider # Register new API provider
+```
+
+### Command Options
+
+#### add-key
+```bash
+# Interactive mode
+keymaster add-key
+
+# Non-interactive mode
+keymaster add-key --service openai --environment dev --api_key <your_api_key>
+
+# Force replace existing key
+keymaster add-key --service openai --environment dev --api_key <your_api_key> --force
+```
+
+#### test-key
+```bash
+# Test single key
+keymaster test-key --service openai --environment dev
+
+# Test all keys
+keymaster test-key --all
+
+# Verbose output
+keymaster test-key --service openai --environment dev --verbose
+```
+
+#### audit
+```bash
+# View all audit logs
+keymaster audit
+
+# Filter by service and environment
+keymaster audit --service openai --environment prod
+
+# Filter by date range
+keymaster audit --start-date 2024-01-01 --end-date 2024-01-31
+
+# View sensitive data
+keymaster audit --decrypt
+```
+
+#### register-provider
+```bash
+# Register new API provider
+keymaster register-provider
+# Prompts for:
+# - Service name
+# - Description
+# - Test URL (optional)
+```
 
