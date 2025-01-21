@@ -1,6 +1,6 @@
 ![Keymaster Banner](img/keymaster_banner.jpg)
 ![OS](https://img.shields.io/badge/OS-linux%2C%20windows%2C%20macOS-0078D4)
-![language](https://img.shields.io/badge/language-Python)]
+![language](https://img.shields.io/badge/language-Python-blue)
 # Keymaster
 
 Secure API key management for the various APIs you use, with support for OpenAI, Anthropic, Stability AI, and DeepSeek.  Addional support for any other API service you want to add.
