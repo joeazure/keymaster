@@ -1,6 +1,7 @@
+(./img/keymaster_banner.jpg)
 # Keymaster
 
-Secure API key management for AI services, with support for OpenAI, Anthropic, Stability AI, and DeepSeek.
+Secure API key management for the various APIs you use, with support for OpenAI, Anthropic, Stability AI, and DeepSeek.  Addional support for any other API service you want to add.
 
 ## Features
 
