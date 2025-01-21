@@ -699,57 +699,115 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
 
 
 @cli.command()
-@click.option("--service", required=True, help="Service name (e.g., OpenAI)")
-@click.option("--environment", required=True, help="Environment (dev/staging/prod)")
-def rotate_key(service: str, environment: str) -> None:
+@click.option("--service", required=False, help="Service name (e.g., OpenAI)")
+@click.option("--environment", required=False, help="Environment (dev/staging/prod)")
+def rotate_key(service: str | None, environment: str | None) -> None:
     """Rotate an API key (requires manual input of new key)."""
-    old_key = KeyStore.get_key(service, environment)
-    if not old_key:
-        click.echo(f"No existing key found for {service} in {environment} environment.")
+    # Get list of stored keys with metadata
+    stored_keys = KeyStore.list_keys()
+    if not stored_keys:
+        click.echo("No keys found.")
+        return
+    
+    # If service not provided, prompt for it
+    if not service:
+        # Get unique services that have stored keys
+        available_services = {
+            provider.service_name 
+            for provider in get_providers().values()
+            if any(svc.lower() == provider.service_name.lower() for svc, _, _, _ in stored_keys)
+        }
+        if not available_services:
+            click.echo("No services found with stored keys.")
+            return
+            
+        service, _ = prompt_selection(
+            "Select service:", 
+            sorted(available_services), 
+            show_descriptions=True
+        )
+    
+    # Get the canonical service name
+    provider = get_provider_by_name(service)
+    if not provider:
+        click.echo(f"Unsupported service: {service}")
         return
         
+    service_name = provider.service_name
+    
+    # Get environments that have metadata entries for this service
+    available_environments = sorted(set(
+        env for svc, env, _, _ in stored_keys 
+        if svc.lower() == service_name.lower()
+    ))
+    
+    if not available_environments:
+        click.echo(f"No keys found for service '{service_name}'")
+        return
+    
+    # If environment not provided, prompt for it from available environments
+    if not environment:
+        environment, _ = prompt_selection(
+            f"Select environment for {service_name}:", 
+            available_environments,
+            allow_new=False  # Don't allow new environments since we're rotating existing keys
+        )
+    elif environment not in available_environments:
+        click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
+        click.echo(f"Available environments: {', '.join(available_environments)}")
+        return
+    
+    # Get the old key
+    old_key = KeyStore.get_key(service_name, environment)
+    if not old_key:
+        click.echo(f"Warning: No existing key found in secure storage for {service_name} in {environment} environment.")
+        if not click.confirm("Do you want to continue and set a new key?", default=False):
+            return
+    
+    # Get the new key
     new_key = click.prompt("Enter new API key", hide_input=True)
     confirm_key = click.prompt("Confirm new API key", hide_input=True)
     
     if new_key != confirm_key:
         click.echo("Keys do not match!")
         return
-        
-    # Test the new key before replacing the old one
-    provider_map = {
-        "openai": "OpenAIProvider",
-        "anthropic": "AnthropicProvider",
-        "stability": "StabilityProvider"
-    }
     
-    if service.lower() not in provider_map:
-        click.echo(f"Unsupported service: {service}")
-        return
-        
-    provider_name = provider_map[service.lower()]
-    provider_module = __import__(f"keymaster.providers", fromlist=[provider_name])
-    provider_class = getattr(provider_module, provider_name)
-    
+    # Test the new key before storing it
     try:
-        provider_class.test_key(new_key)
-    except Exception as e:
-        click.echo(f"New key validation failed: {str(e)}")
-        return
+        if verbose := click.confirm("Would you like to see the test results?", default=False):
+            click.echo(f"\nTesting new key for {service_name} ({environment})...")
+            click.echo(f"API Endpoint: {provider.api_url}")
+            
+        result = provider.test_key(new_key)
         
+        if verbose:
+            click.echo("\nAPI Response:")
+            click.echo(f"{result}")
+            
+        click.echo(f"\n✅ New key validation successful for {service_name}")
+    except Exception as e:
+        click.echo(f"\n❌ New key validation failed: {str(e)}")
+        if not click.confirm("Do you want to store the key anyway?", default=False):
+            return
+    
     # Store the new key
-    KeyStore.store_key(service, environment, new_key)
+    KeyStore.store_key(service_name, environment, new_key)
     
     # Log the rotation
     audit_logger = AuditLogger()
     audit_logger.log_event(
         event_type="key_rotation",
-        service=service,
+        service=service_name,
         environment=environment,
-        user=os.getlogin(),
-        additional_data={"rotation_successful": True}
+        user=os.getenv("USER", "unknown"),
+        additional_data={
+            "action": "rotate",
+            "old_key_existed": bool(old_key),
+            "validation_succeeded": True
+        }
     )
     
-    click.echo(f"Successfully rotated key for {service} ({environment})")
+    click.echo(f"\nSuccessfully rotated key for {service_name} ({environment})")
 
 
 @cli.command()
