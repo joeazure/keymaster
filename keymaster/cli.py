@@ -162,19 +162,31 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
                 return
         # 'replace' continues with the operation
         
-        # Backup the old key
-        audit_logger = AuditLogger()
-        audit_logger.log_event(
-            event_type="key_backup",
-            service=service_name,
-            environment=environment,
-            user=os.getlogin(),
-            sensitive_data=existing_key,
-            additional_data={
-                "action": "backup",
-                "reason": "key_replacement"
-            }
-        )
+        # Backup the old key in secure storage with a timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_service = f"{service_name}_backup_{timestamp}"
+        try:
+            KeyStore.store_key(backup_service, environment, existing_key)
+            click.echo(f"Backed up existing key to {backup_service}")
+            
+            # Log the backup
+            audit_logger = AuditLogger()
+            audit_logger.log_event(
+                event_type="key_backup",
+                service=service_name,
+                environment=environment,
+                user=os.getenv("USER", "unknown"),
+                additional_data={
+                    "action": "backup",
+                    "reason": "key_replacement",
+                    "backup_service": backup_service
+                }
+            )
+        except Exception as e:
+            click.echo(f"Warning: Failed to backup existing key: {str(e)}")
+            if not click.confirm("Continue without backing up the existing key?", default=False):
+                click.echo("Operation cancelled")
+                return
     
     # Store the new key
     KeyStore.store_key(service_name, environment, api_key)
@@ -185,7 +197,7 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
         event_type="add_key",
         service=service_name,
         environment=environment,
-        user=os.getlogin(),
+        user=os.getenv("USER", "unknown"),
         sensitive_data=api_key,
         additional_data={
             "action": "add",
@@ -701,7 +713,9 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
 @cli.command()
 @click.option("--service", required=False, help="Service name (e.g., OpenAI)")
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
-def rotate_key(service: str | None, environment: str | None) -> None:
+@click.option("--verbose", is_flag=True, default=False, help="Show detailed test information including API URL and response")
+@click.option("--all", "test_all", is_flag=True, default=False, help="Test all stored keys")
+def rotate_key(service: str | None, environment: str | None, verbose: bool, test_all: bool) -> None:
     """Rotate an API key (requires manual input of new key)."""
     # Get list of stored keys with metadata
     stored_keys = KeyStore.list_keys()
