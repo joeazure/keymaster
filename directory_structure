@@ -1,0 +1,9 @@
+src/
+  keymaster/
+    __init__.py
+    cli.py
+    audit.py
+    [other modules...]
+tests/
+  __init__.py
+  [test files...] 

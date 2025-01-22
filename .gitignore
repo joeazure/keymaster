@@ -22,7 +22,6 @@ wheels/
 
 # Virtual Environment
 venv/
-env/
 ENV/
 
 # IDE
@@ -30,6 +29,36 @@ ENV/
 .vscode/
 *.swp
 *.swo
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Project specific
+keymaster/_version.py
+.keymaster/
+
+# Test coverage
+.coverage.*
+coverage.xml
+
+# Virtual Environment
+env/
+
+# IDE
 .env
 
 # macOS
