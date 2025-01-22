@@ -16,6 +16,7 @@ required_packages:
   - cryptography>=41.0.0
   - python-dotenv>=1.0.0
   - structlog>=23.0.0
+  - requests>=2.31.0
 
 # Testing
 test_framework: pytest
@@ -53,6 +54,6 @@ settings:
 # Project Metadata
 project_metadata:
   name: keymaster
-  description: "Secure API key management for AI services"
-  author: "Your Name"
-  license: MIT
+  description: "Secure API key management for the API services you use, including AI services."
+  author: "Joe Azure"
+  license: Apache-2.0

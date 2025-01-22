@@ -1,9 +1,61 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools_scm]
-write_to = "keymaster/_version.py"
+[project]
+name = "keymaster"
+version = "0.1.1"
+description = "Secure API key management for the API services you use, including AI services."
+authors = [
+    {name = "Joe Azure", email = "jazure@gmail.com"},
+]
+license = {text = "Apache-2.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["security", "api-keys", "key-management", "ai-services"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "click>=8.1.0",
+    "keyring>=24.0.0",
+    "pyyaml>=6.0.0",
+    "cryptography>=41.0.0",
+    "python-dotenv>=1.0.0",
+    "structlog>=23.0.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.1",
+    "responses>=0.23.0",
+    "freezegun>=1.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/joeazure/keymaster"
+Documentation = "https://github.com/joeazure/keymaster#readme"
+Repository = "https://github.com/joeazure/keymaster.git"
+Issues = "https://github.com/joeazure/keymaster/issues"
+
+[project.scripts]
+keymaster = "keymaster.cli:cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 line-length = 88
