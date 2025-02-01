@@ -34,10 +34,16 @@ Secure API key management for the various APIs you use, with support for OpenAI,
 
 ## Installation
 
+### From PyPI (Recommended)
+```bash
+pip install keymaster
+```
+
+### From Source
 1. Create and activate a virtual environment:
 ```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 2. Install from source:
