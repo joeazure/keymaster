@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keymaster"
-version = "0.1.1"
+version = "0.1.2"
 description = "Secure API key management for the API services you use, including AI services."
 authors = [
     {name = "Joe Azure", email = "jazure@gmail.com"},
