@@ -7,6 +7,7 @@ python_version: "3.11"
 root_dir: keymaster
 test_dir: tests
 docs_dir: docs
+src_dir: src
 
 # Dependencies
 required_packages:
