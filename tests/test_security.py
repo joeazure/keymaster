@@ -33,9 +33,12 @@ class MockKeyring(keyring.backend.KeyringBackend):
 def mock_keyring():
     """Create a mock keyring backend and set it as the default."""
     mock_kr = MockKeyring()
-    with patch('keyring.get_keyring', return_value=mock_kr):
-        with patch('keymaster.security.KeyStore._verify_backend'):  # Skip verification
-            yield mock_kr
+    with patch('keyring.get_keyring', return_value=mock_kr), \
+         patch('keymaster.security.KeyStore._verify_backend'), \
+         patch('keyring.set_password', side_effect=mock_kr.set_password), \
+         patch('keyring.get_password', side_effect=mock_kr.get_password), \
+         patch('keyring.delete_password', side_effect=mock_kr.delete_password):
+        yield mock_kr
 
 @pytest.fixture
 def mock_db():
