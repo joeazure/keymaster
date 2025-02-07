@@ -6,7 +6,6 @@ import os
 from keymaster.db import KeyDatabase
 import sys
 from keyring.errors import KeyringError
-import keyring.backends
 
 log = structlog.get_logger()
 
@@ -29,15 +28,15 @@ class KeyStore:
         """
         backend = keyring.get_keyring()
         
-        # List of known secure backends
-        secure_backends = (
-            keyring.backends.macOS.Keyring,      # macOS Keychain
-            keyring.backends.Windows.WinVaultKeyring,  # Windows Credential Locker
-            keyring.backends.SecretService.Keyring,    # Linux SecretService
-            keyring.backends.kwallet.DBusKeyring,      # KDE KWallet
-        )
+        # List of known secure backend names
+        secure_backend_names = {
+            "Keyring",              # macOS Keychain
+            "WinVaultKeyring",      # Windows Credential Locker
+            "SecretService.Keyring", # Linux SecretService
+            "DBusKeyring",          # KDE KWallet
+        }
         
-        if not isinstance(backend, secure_backends):
+        if backend.__class__.__name__ not in secure_backend_names:
             raise KeyringError(
                 f"No secure keyring backend available. Current backend: {backend.__class__.__name__}\n"
                 "Please install and configure one of the following:\n"

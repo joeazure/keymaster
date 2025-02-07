@@ -2,7 +2,6 @@ import pytest
 from keymaster.security import KeyStore
 from unittest.mock import patch, MagicMock, Mock
 from keyring.errors import KeyringError, PasswordDeleteError
-import keyring.backends
 import keyring.backend
 import os
 from datetime import datetime
@@ -94,13 +93,15 @@ class TestKeyStore:
             
     def test_verify_backend_secure(self):
         """Test backend verification with a secure backend"""
-        mock_backend = MagicMock(spec=keyring.backends.macOS.Keyring)
+        mock_backend = MagicMock()
+        mock_backend.__class__.__name__ = "Keyring"  # Mock a secure backend name
         with patch('keyring.get_keyring', return_value=mock_backend):
             KeyStore._verify_backend()  # Should not raise an error
             
     def test_verify_backend_insecure(self):
         """Test backend verification with an insecure backend"""
-        mock_backend = MagicMock()  # Generic mock, not a secure backend
+        mock_backend = MagicMock()
+        mock_backend.__class__.__name__ = "ChainerBackend"  # Mock an insecure backend name
         with patch('keyring.get_keyring', return_value=mock_backend):
             with pytest.raises(KeyringError):
                 KeyStore._verify_backend()
