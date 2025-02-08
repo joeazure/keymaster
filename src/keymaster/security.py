@@ -26,8 +26,30 @@ class KeyStore:
         Verify that a secure backend is being used.
         Raises KeyringError if no secure backend is available.
         """
+        # Try to set the most secure backend for the current platform
+        if sys.platform == "darwin":
+            try:
+                from keyring.backends import macOS
+                keyring.set_keyring(macOS.Keyring())
+            except Exception as e:
+                log.warning("Failed to set macOS Keychain backend", error=str(e))
+        elif sys.platform == "win32":
+            try:
+                from keyring.backends import Windows
+                keyring.set_keyring(Windows.WinVaultKeyring())
+            except Exception as e:
+                log.warning("Failed to set Windows Credential Locker backend", error=str(e))
+        elif sys.platform.startswith("linux"):
+            try:
+                from keyring.backends import SecretService
+                keyring.set_keyring(SecretService.Keyring())
+            except Exception as e:
+                log.warning("Failed to set SecretService backend", error=str(e))
+                
+        # Get the current backend
         backend = keyring.get_keyring()
         backend_name = backend.__class__.__name__
+        log.info("Current backend", backend=backend_name)
         
         # List of known secure backend names
         secure_backend_names = {
