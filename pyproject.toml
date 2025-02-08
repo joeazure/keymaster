@@ -40,6 +40,7 @@ test = [
     "pytest-mock>=3.11.1",
     "responses>=0.23.0",
     "freezegun>=1.2.0",
+    "keyrings.alt>=5.0.0",
 ]
 
 [project.urls]

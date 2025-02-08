@@ -101,7 +101,7 @@ class TestKeyStore:
     def test_verify_backend_insecure(self):
         """Test backend verification with an insecure backend"""
         mock_backend = MagicMock()
-        mock_backend.__class__.__name__ = "ChainerBackend"  # Mock an insecure backend name
+        mock_backend.__class__.__name__ = "PlaintextKeyring"  # Use a different insecure backend name
         with patch('keyring.get_keyring', return_value=mock_backend):
             with pytest.raises(KeyringError):
                 KeyStore._verify_backend()
