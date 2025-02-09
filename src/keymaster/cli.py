@@ -377,9 +377,35 @@ def config(action: str) -> None:
     Manage Keymaster configuration. Supports 'show' or 'reset'.
     """
     if action == "show":
+        # Show YAML configuration
         data = ConfigManager.load_config()
-        click.echo("Current configuration:")
-        click.echo(str(data))
+        click.echo("\nConfiguration from config.yaml:")
+        click.echo("=" * 30)
+        if data:
+            for key, value in data.items():
+                click.echo(f"{key}: {value}")
+        else:
+            click.echo("No configuration settings found.")
+            
+        # Show registered providers
+        from keymaster.providers import get_providers, _load_generic_providers
+        
+        # Ensure generic providers are loaded
+        _load_generic_providers()
+        providers = get_providers()
+        
+        click.echo("\nRegistered Providers:")
+        click.echo("=" * 30)
+        if providers:
+            for name, provider in sorted(providers.items(), key=lambda x: x[1].service_name):
+                click.echo(f"\nService: {provider.service_name}")
+                click.echo(f"Description: {provider.description}")
+                if hasattr(provider, 'test_url') and provider.test_url:
+                    click.echo(f"Test URL: {provider.test_url}")
+                if hasattr(provider, 'api_url') and provider.api_url:
+                    click.echo(f"API URL: {provider.api_url}")
+        else:
+            click.echo("No providers registered.")
     elif action == "reset":
         ConfigManager.write_config({})
         click.echo("Configuration has been reset.")
@@ -698,7 +724,7 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
     if not key:
         click.echo(f"No key found for {service_name} in {environment} environment.")
         return
-        
+    
     # Get environment variable name for the service
     env_var_name = f"{service_name.upper()}_API_KEY"
     
