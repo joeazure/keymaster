@@ -387,25 +387,62 @@ def config(action: str) -> None:
         else:
             click.echo("No configuration settings found.")
             
-        # Show registered providers
-        from keymaster.providers import get_providers, _load_generic_providers
+        # Show providers
+        from keymaster.providers import (
+            get_providers, 
+            _load_generic_providers,
+            GenericProvider,
+            OpenAIProvider,
+            AnthropicProvider,
+            StabilityProvider,
+            DeepSeekProvider,
+            _register_provider
+        )
+        
+        # Register built-in providers
+        _register_provider(OpenAIProvider)
+        _register_provider(AnthropicProvider)
+        _register_provider(StabilityProvider)
+        _register_provider(DeepSeekProvider)
         
         # Ensure generic providers are loaded
         _load_generic_providers()
         providers = get_providers()
         
-        click.echo("\nRegistered Providers:")
+        # Separate built-in and custom providers
+        builtin_providers = {
+            name: provider for name, provider in providers.items()
+            if isinstance(provider, (OpenAIProvider, AnthropicProvider, StabilityProvider, DeepSeekProvider))
+        }
+        
+        custom_providers = {
+            name: provider for name, provider in providers.items()
+            if isinstance(provider, GenericProvider)
+        }
+        
+        # Show built-in providers
+        click.echo("\nBuilt-in Providers:")
         click.echo("=" * 30)
-        if providers:
-            for name, provider in sorted(providers.items(), key=lambda x: x[1].service_name):
+        if builtin_providers:
+            for name, provider in sorted(builtin_providers.items(), key=lambda x: x[1].service_name):
                 click.echo(f"\nService: {provider.service_name}")
                 click.echo(f"Description: {provider.description}")
-                if hasattr(provider, 'test_url') and provider.test_url:
-                    click.echo(f"Test URL: {provider.test_url}")
-                if hasattr(provider, 'api_url') and provider.api_url:
+                if provider.api_url:
                     click.echo(f"API URL: {provider.api_url}")
         else:
-            click.echo("No providers registered.")
+            click.echo("No built-in providers available.")
+            
+        # Show custom registered providers
+        click.echo("\nCustom Registered Providers:")
+        click.echo("=" * 30)
+        if custom_providers:
+            for name, provider in sorted(custom_providers.items(), key=lambda x: x[1].service_name):
+                click.echo(f"\nService: {provider.service_name}")
+                click.echo(f"Description: {provider.description}")
+                if provider.test_url:
+                    click.echo(f"Test URL: {provider.test_url}")
+        else:
+            click.echo("No custom providers registered.")
     elif action == "reset":
         ConfigManager.write_config({})
         click.echo("Configuration has been reset.")
