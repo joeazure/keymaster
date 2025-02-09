@@ -29,6 +29,9 @@ def init() -> None:
     """
     Initialize Keymaster configuration and resources.
     """
+    # Track changes
+    changes_made = []
+    
     # Check if already initialized by looking for config and directories
     config_manager = ConfigManager()
     is_initialized = (
@@ -39,6 +42,7 @@ def init() -> None:
     
     if is_initialized:
         click.echo("Keymaster is already initialized and ready to use.")
+        click.echo("No changes were necessary.")
         return
         
     click.echo("Initializing Keymaster...")
@@ -52,7 +56,7 @@ def init() -> None:
             "db_path": "~/.keymaster/db/keymaster.db"
         }
         config_manager.write_config(initial_config)
-        click.echo("Created initial configuration file.")
+        changes_made.append("Created initial configuration file")
     
     # Create necessary directories
     dirs_to_create = [
@@ -63,7 +67,7 @@ def init() -> None:
     for directory in dirs_to_create:
         if not os.path.exists(directory):
             os.makedirs(directory, mode=0o700)  # Secure permissions
-            click.echo(f"Created directory: {directory}")
+            changes_made.append(f"Created directory: {directory}")
     
     # 2. Verify system requirements and secure storage backend
     try:
@@ -83,6 +87,7 @@ def init() -> None:
             click.echo("Warning: Secure storage test failed. Key storage may not work correctly.")
         else:
             click.echo("Verified secure storage access.")
+            changes_made.append("Verified secure storage access")
     except KeyringError as e:
         click.echo(f"Warning: {str(e)}")
     except Exception as e:
@@ -96,9 +101,17 @@ def init() -> None:
         additional_data={
             "action": "init",
             "platform": sys.platform,
-            "storage_test": "success" if retrieved == test_value else "failed"
+            "storage_test": "success" if retrieved == test_value else "failed",
+            "changes_made": changes_made
         }
     )
+    
+    if changes_made:
+        click.echo("\nChanges made during initialization:")
+        for change in changes_made:
+            click.echo(f"- {change}")
+    else:
+        click.echo("\nNo changes were necessary during initialization.")
     
     click.echo("\nKeymaster initialization complete.")
 
