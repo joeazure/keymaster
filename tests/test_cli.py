@@ -68,6 +68,14 @@ def mock_providers_file():
         }
     ]
 
+@pytest.fixture(autouse=True)
+def clear_provider_registry():
+    """Clear the provider registry before and after each test."""
+    from keymaster.providers import _providers
+    _providers.clear()
+    yield
+    _providers.clear()
+
 class TestConfigCommand:
     def test_config_show_all_providers(self, cli_runner, mock_config, mock_providers_file, 
                                      mock_expanduser, mock_db, mock_audit_logger):
