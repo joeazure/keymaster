@@ -9,7 +9,8 @@ from keymaster.providers import (
     AnthropicProvider,
     StabilityProvider,
     DeepSeekProvider,
-    GenericProvider
+    GenericProvider,
+    _register_provider
 )
 import os
 
@@ -76,9 +77,18 @@ def clear_provider_registry():
     yield
     _providers.clear()
 
+@pytest.fixture
+def register_builtin_providers():
+    """Register built-in providers."""
+    _register_provider(OpenAIProvider)
+    _register_provider(AnthropicProvider)
+    _register_provider(StabilityProvider)
+    _register_provider(DeepSeekProvider)
+
 class TestConfigCommand:
     def test_config_show_all_providers(self, cli_runner, mock_config, mock_providers_file, 
-                                     mock_expanduser, mock_db, mock_audit_logger):
+                                     mock_expanduser, mock_db, mock_audit_logger,
+                                     register_builtin_providers):
         """Test that 'config show' displays both built-in and custom providers."""
         
         # Mock configuration and file operations
@@ -95,51 +105,39 @@ class TestConfigCommand:
                 test_url="https://api.test.com/validate"
             )
             
-            # Mock the providers registry with instances
-            mock_providers = {
-                'openai': OpenAIProvider(),
-                'anthropic': AnthropicProvider(),
-                'stability': StabilityProvider(),
-                'deepseek': DeepSeekProvider(),
-                'testapi': test_provider
-            }
+            # Register the test provider
+            _register_provider(test_provider)
             
-            # Mock both get_providers and _register_provider
-            with patch('keymaster.providers.get_providers', return_value=mock_providers), \
-                 patch('keymaster.providers._register_provider') as mock_register, \
-                 patch('keymaster.providers._save_generic_providers') as mock_save, \
-                 patch('keymaster.cli.KeyStore') as mock_keystore:
-                
-                result = cli_runner.invoke(cli, ['config', '--action', 'show'])
-                
-                # Verify exit code
-                assert result.exit_code == 0
-                
-                # Verify configuration section
-                assert "Configuration from config.yaml:" in result.output
-                assert "log_level: INFO" in result.output
-                assert "encryption_key" in result.output
-                
-                # Verify built-in providers section
-                assert "Built-in Providers:" in result.output
-                assert "OpenAI" in result.output
-                assert "Anthropic" in result.output
-                assert "Stability" in result.output
-                assert "DeepSeek" in result.output
-                
-                # Verify custom providers section
-                assert "Custom Registered Providers:" in result.output
-                assert "TestAPI" in result.output
-                assert "Test Service" in result.output
-                assert "https://api.test.com/validate" in result.output
-                
-                # Verify no actual file operations occurred
-                mock_save.assert_not_called()
-                mock_makedirs.assert_not_called()
-                assert not mock_expanduser.called
+            result = cli_runner.invoke(cli, ['config', '--action', 'show'])
+            
+            # Verify exit code
+            assert result.exit_code == 0
+            
+            # Verify configuration section
+            assert "Configuration from config.yaml:" in result.output
+            assert "log_level: INFO" in result.output
+            assert "encryption_key" in result.output
+            
+            # Verify built-in providers section
+            assert "Built-in Providers:" in result.output
+            assert "OpenAI" in result.output
+            assert "Anthropic" in result.output
+            assert "Stability" in result.output
+            assert "DeepSeek" in result.output
+            
+            # Verify custom providers section
+            assert "Custom Registered Providers:" in result.output
+            assert "TestAPI" in result.output
+            assert "Test Service" in result.output
+            assert "https://api.test.com/validate" in result.output
+            
+            # Verify no actual file operations occurred
+            mock_makedirs.assert_not_called()
+            assert not mock_expanduser.called
     
     def test_config_show_no_custom_providers(self, cli_runner, mock_config, 
-                                           mock_expanduser, mock_db, mock_audit_logger):
+                                           mock_expanduser, mock_db, mock_audit_logger,
+                                           register_builtin_providers):
         """Test that 'config show' works correctly with no custom providers."""
         
         # Mock configuration and empty providers file
@@ -149,40 +147,29 @@ class TestConfigCommand:
              patch('json.load', return_value=[]), \
              patch('os.makedirs') as mock_makedirs:
 
-            # Mock the providers registry with only built-in provider instances
-            mock_providers = {
-                'openai': OpenAIProvider(),
-                'anthropic': AnthropicProvider(),
-                'stability': StabilityProvider(),
-                'deepseek': DeepSeekProvider()
-            }
+            result = cli_runner.invoke(cli, ['config', '--action', 'show'])
             
-            # Mock both get_providers and _register_provider
-            with patch('keymaster.providers.get_providers', return_value=mock_providers), \
-                 patch('keymaster.providers._register_provider'), \
-                 patch('keymaster.providers._save_generic_providers') as mock_save, \
-                 patch('keymaster.cli.KeyStore') as mock_keystore:
-
-                result = cli_runner.invoke(cli, ['config', '--action', 'show'])
-                
-                # Verify exit code
-                assert result.exit_code == 0
-                
-                # Verify built-in providers are shown
-                assert "Built-in Providers:" in result.output
-                assert "OpenAI" in result.output
-                
-                # Verify custom providers section shows as empty
-                assert "Custom Registered Providers:" in result.output
-                assert "No custom providers registered." in result.output
-                
-                # Verify no actual file operations occurred
-                mock_save.assert_not_called()
-                mock_makedirs.assert_not_called()
-                assert not mock_expanduser.called
+            # Verify exit code
+            assert result.exit_code == 0
+            
+            # Verify built-in providers are shown
+            assert "Built-in Providers:" in result.output
+            assert "OpenAI" in result.output
+            assert "Anthropic" in result.output
+            assert "Stability" in result.output
+            assert "DeepSeek" in result.output
+            
+            # Verify custom providers section shows as empty
+            assert "Custom Registered Providers:" in result.output
+            assert "No custom providers registered." in result.output
+            
+            # Verify no actual file operations occurred
+            mock_makedirs.assert_not_called()
+            assert not mock_expanduser.called
     
     def test_config_show_no_config(self, cli_runner, mock_expanduser, 
-                                 mock_db, mock_audit_logger):
+                                 mock_db, mock_audit_logger,
+                                 register_builtin_providers):
         """Test that 'config show' handles empty configuration correctly."""
         
         # Mock empty configuration and providers file
@@ -192,33 +179,24 @@ class TestConfigCommand:
              patch('json.load', return_value=[]), \
              patch('os.makedirs') as mock_makedirs:
 
-            # Mock the providers registry with instance
-            mock_providers = {
-                'openai': OpenAIProvider()
-            }
+            result = cli_runner.invoke(cli, ['config', '--action', 'show'])
             
-            # Mock both get_providers and _register_provider
-            with patch('keymaster.providers.get_providers', return_value=mock_providers), \
-                 patch('keymaster.providers._register_provider'), \
-                 patch('keymaster.providers._save_generic_providers') as mock_save, \
-                 patch('keymaster.cli.KeyStore') as mock_keystore:
-
-                result = cli_runner.invoke(cli, ['config', '--action', 'show'])
-                
-                # Verify exit code
-                assert result.exit_code == 0
-                
-                # Verify empty config message
-                assert "No configuration settings found." in result.output
-                
-                # Verify providers are still shown
-                assert "Built-in Providers:" in result.output
-                assert "OpenAI" in result.output
-                
-                # Verify no actual file operations occurred
-                mock_save.assert_not_called()
-                mock_makedirs.assert_not_called()
-                assert not mock_expanduser.called
+            # Verify exit code
+            assert result.exit_code == 0
+            
+            # Verify empty config message
+            assert "No configuration settings found." in result.output
+            
+            # Verify built-in providers are shown
+            assert "Built-in Providers:" in result.output
+            assert "OpenAI" in result.output
+            assert "Anthropic" in result.output
+            assert "Stability" in result.output
+            assert "DeepSeek" in result.output
+            
+            # Verify no actual file operations occurred
+            mock_makedirs.assert_not_called()
+            assert not mock_expanduser.called
     
     def test_config_reset(self, cli_runner, mock_expanduser, mock_db, mock_audit_logger):
         """Test the 'config reset' action."""

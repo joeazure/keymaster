@@ -396,14 +396,18 @@ def config(action: str) -> None:
             AnthropicProvider,
             StabilityProvider,
             DeepSeekProvider,
-            _register_provider
+            _register_provider,
+            _providers
         )
         
+        # Clear the provider registry to ensure a clean state
+        _providers.clear()
+        
         # Register built-in providers
-        _register_provider(OpenAIProvider)
-        _register_provider(AnthropicProvider)
-        _register_provider(StabilityProvider)
-        _register_provider(DeepSeekProvider)
+        _register_provider(OpenAIProvider())
+        _register_provider(AnthropicProvider())
+        _register_provider(StabilityProvider())
+        _register_provider(DeepSeekProvider())
         
         # Ensure generic providers are loaded
         _load_generic_providers()
