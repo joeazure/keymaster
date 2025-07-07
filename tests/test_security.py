@@ -1,7 +1,8 @@
 import pytest
 from keymaster.security import KeyStore
 from unittest.mock import patch, MagicMock, Mock
-from keyring.errors import KeyringError, PasswordDeleteError
+from keyring.errors import KeyringError as OriginalKeyringError, PasswordDeleteError
+from keymaster.exceptions import KeyringError as KeymasterKeyringError
 import keyring.backend
 import os
 from datetime import datetime
@@ -103,7 +104,7 @@ class TestKeyStore:
         mock_backend = MagicMock()
         mock_backend.__class__.__name__ = "PlaintextKeyring"  # Use a different insecure backend name
         with patch('keyring.get_keyring', return_value=mock_backend):
-            with pytest.raises(KeyringError):
+            with pytest.raises(KeymasterKeyringError):
                 KeyStore._verify_backend()
                 
     def test_list_keys_empty(self, test_db, mock_keyring, mock_db):

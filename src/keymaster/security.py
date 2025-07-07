@@ -6,6 +6,7 @@ import os
 from keymaster.db import KeyDatabase
 import sys
 from keyring.errors import KeyringError
+from keymaster.exceptions import KeyringError as KeymasterKeyringError, StorageError
 
 log = structlog.get_logger()
 
@@ -66,12 +67,13 @@ class KeyStore:
             return
         
         if backend_name not in secure_backend_names:
-            raise KeyringError(
+            raise KeymasterKeyringError(
                 f"No secure keyring backend available. Current backend: {backend_name}\n"
                 "Please install and configure one of the following:\n"
                 "- macOS: Keychain (built-in)\n"
                 "- Windows: Windows Credential Locker (built-in)\n"
-                "- Linux: SecretService (gnome-keyring or kwallet)"
+                "- Linux: SecretService (gnome-keyring or kwallet)",
+                backend=backend_name
             )
             
         log.info("Using keyring backend", backend=backend_name)
@@ -264,4 +266,72 @@ class KeyStore:
         """
         cls._verify_backend()
         db = KeyDatabase()
-        db.remove_key(service, environment) 
+        db.remove_key(service, environment)
+
+    @classmethod
+    def get_system_key(cls, key_name: str) -> Optional[str]:
+        """
+        Retrieve a system/internal key from secure storage.
+        
+        Args:
+            key_name: Name of the system key (e.g., 'audit_encryption')
+            
+        Returns:
+            The key if found, None otherwise
+            
+        Raises:
+            KeymasterKeyringError: If no secure backend is available
+        """
+        cls._verify_backend()
+        
+        try:
+            key = keyring.get_password("keymaster-system", key_name)
+            if key:
+                log.info("Retrieved system key from secure storage", key_name=key_name)
+            return key
+        except Exception as e:
+            log.error("Failed to retrieve system key", key_name=key_name, error=str(e))
+            raise StorageError(f"Failed to retrieve system key '{key_name}': {e}", operation="get_system_key")
+
+    @classmethod
+    def store_system_key(cls, key_name: str, key_value: str) -> None:
+        """
+        Store a system/internal key in secure storage.
+        
+        Args:
+            key_name: Name of the system key (e.g., 'audit_encryption')
+            key_value: The key value to store
+            
+        Raises:
+            KeymasterKeyringError: If no secure backend is available
+        """
+        cls._verify_backend()
+        
+        try:
+            keyring.set_password("keymaster-system", key_name, key_value)
+            log.info("Stored system key in secure storage", key_name=key_name)
+        except Exception as e:
+            log.error("Failed to store system key", key_name=key_name, error=str(e))
+            raise StorageError(f"Failed to store system key '{key_name}': {e}", operation="store_system_key")
+
+    @classmethod
+    def remove_system_key(cls, key_name: str) -> None:
+        """
+        Remove a system/internal key from secure storage.
+        
+        Args:
+            key_name: Name of the system key to remove
+            
+        Raises:
+            KeymasterKeyringError: If no secure backend is available
+        """
+        cls._verify_backend()
+        
+        try:
+            keyring.delete_password("keymaster-system", key_name)
+            log.info("Removed system key from secure storage", key_name=key_name)
+        except keyring.errors.PasswordDeleteError:
+            log.warning("System key not found in secure storage", key_name=key_name)
+        except Exception as e:
+            log.error("Failed to remove system key", key_name=key_name, error=str(e))
+            raise StorageError(f"Failed to remove system key '{key_name}': {e}", operation="remove_system_key") 

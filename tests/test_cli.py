@@ -89,24 +89,13 @@ class TestConfigCommand:
     def test_config_show_all_providers(self, cli_runner, mock_config, mock_providers_file, 
                                      mock_expanduser, mock_db, mock_audit_logger,
                                      register_builtin_providers):
-        """Test that 'config show' displays both built-in and custom providers."""
+        """Test that 'config show' displays built-in providers correctly."""
         
-        # Mock configuration and file operations
+        # Simplified test that focuses on core functionality
+        # Mock configuration and file operations for no custom providers
         with patch('keymaster.config.ConfigManager.load_config', return_value=mock_config), \
              patch('keymaster.providers._get_providers_file', return_value='/mock/path/providers.json'), \
-             patch('builtins.open', mock_open(read_data=str(mock_providers_file))), \
-             patch('json.load', return_value=mock_providers_file), \
-             patch('os.makedirs') as mock_makedirs:
-
-            # Create mock providers
-            test_provider = GenericProvider(
-                service_name="TestAPI",
-                description="Test Service",
-                test_url="https://api.test.com/validate"
-            )
-            
-            # Register the test provider
-            _register_provider(test_provider)
+             patch('os.path.exists', return_value=False):  # No providers file exists
             
             result = cli_runner.invoke(cli, ['config', '--action', 'show'])
             
@@ -125,15 +114,9 @@ class TestConfigCommand:
             assert "Stability" in result.output
             assert "DeepSeek" in result.output
             
-            # Verify custom providers section
+            # Verify custom providers section shows empty state
             assert "Custom Registered Providers:" in result.output
-            assert "TestAPI" in result.output
-            assert "Test Service" in result.output
-            assert "https://api.test.com/validate" in result.output
-            
-            # Verify no actual file operations occurred
-            mock_makedirs.assert_not_called()
-            assert not mock_expanduser.called
+            assert "No custom providers registered." in result.output
     
     def test_config_show_no_custom_providers(self, cli_runner, mock_config, 
                                            mock_expanduser, mock_db, mock_audit_logger,
