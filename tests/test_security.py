@@ -1,7 +1,7 @@
 import pytest
 from keymaster.security import KeyStore
 from unittest.mock import patch, MagicMock, Mock
-from keyring.errors import KeyringError as OriginalKeyringError
+from keyring.errors import KeyringError as OriginalKeyringError, PasswordDeleteError
 from keymaster.exceptions import KeyringError as KeymasterKeyringError
 import keyring.backend
 import os
