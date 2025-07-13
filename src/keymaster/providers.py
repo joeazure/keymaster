@@ -212,10 +212,10 @@ def _register_provider(provider: BaseProvider) -> None:
     _providers[provider.service_name.lower()] = provider
 
 # Register built-in providers
-_register_provider(OpenAIProvider)
-_register_provider(AnthropicProvider)
-_register_provider(StabilityProvider)
-_register_provider(DeepSeekProvider)
+_register_provider(OpenAIProvider())
+_register_provider(AnthropicProvider())
+_register_provider(StabilityProvider())
+_register_provider(DeepSeekProvider())
 
 # Load any saved generic providers
 _load_generic_providers()
