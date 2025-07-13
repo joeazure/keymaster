@@ -7,7 +7,7 @@ securely in the system keyring rather than in plaintext configuration files.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from cryptography.fernet import Fernet
 import structlog
@@ -191,7 +191,7 @@ class AuditLogger:
             AuditError: If logging fails
         """
         try:
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             
             # Create the event data
             event = {

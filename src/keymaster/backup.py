@@ -226,6 +226,10 @@ class BackupManager:
         # Collect keys and metadata
         stored_keys = KeyStore.list_keys(service_filter)
         for service, environment, updated_at, updated_by in stored_keys:
+            # Apply service filter if specified (KeyStore.list_keys might not filter properly)
+            if service_filter and service.lower() != service_filter.lower():
+                continue
+                
             # Apply environment filter if specified
             if environment_filter and environment != environment_filter:
                 continue
@@ -251,9 +255,10 @@ class BackupManager:
         # Collect audit logs if requested
         if include_audit_logs:
             try:
-                # Get recent audit events (last 1000)
-                audit_events = self.audit_logger.get_events(limit=1000, decrypt=True)
-                backup_data["audit_logs"] = audit_events
+                # Get all audit events (we'll limit them after retrieval if needed)
+                audit_events = self.audit_logger.get_events(decrypt=True)
+                # Limit to last 1000 events for backup size management
+                backup_data["audit_logs"] = audit_events[-1000:] if len(audit_events) > 1000 else audit_events
             except Exception as e:
                 log.warning("Failed to include audit logs in backup", error=str(e))
         

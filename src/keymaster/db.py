@@ -5,7 +5,7 @@ Uses Python's built-in sqlite3 module from the standard library.
 
 import sqlite3
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 import structlog
 
@@ -51,7 +51,7 @@ class KeyDatabase:
                 keychain_service_name: str,
                 user: str) -> None:
         """Add or update a key's metadata."""
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         
         with sqlite3.connect(self.db_path) as conn:
             try:

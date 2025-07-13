@@ -267,35 +267,43 @@ class TestKeyRotator:
         assert calls[0][0][1] == self.test_environment
         assert calls[0][0][2] == old_key
     
-    @patch('keymaster.rotation.KeyStore.list_keys')
-    def test_list_rotation_candidates(self, mock_list_keys):
+    @patch.object(KeyRotationHistory, 'get_keys_due_for_rotation')
+    def test_list_rotation_candidates(self, mock_get_keys_due):
         """Test listing rotation candidates."""
-        # Mock keys with different ages
-        old_date = (datetime.now() - timedelta(days=200)).isoformat()
-        medium_date = (datetime.now() - timedelta(days=120)).isoformat()
-        recent_date = (datetime.now() - timedelta(days=30)).isoformat()
+        # Mock keys with different ages (use timezone-naive datetime to match rotation.py)
+        now = datetime.now()
+        old_datetime = now - timedelta(days=200)
+        medium_datetime = now - timedelta(days=125)
         
-        mock_list_keys.return_value = [
-            ('openai', 'dev', old_date, 'user1'),
-            ('anthropic', 'prod', medium_date, 'user1'),
-            ('stability', 'dev', recent_date, 'user1')
+        # Mock the keys that should be due for rotation (older than 90 days)
+        mock_get_keys_due.return_value = [
+            ('openai', 'dev', old_datetime),
+            ('anthropic', 'prod', medium_datetime)
         ]
         
         candidates = self.rotator.list_rotation_candidates(days_threshold=90)
         
-        # Should return candidates (old and medium age, recent should be excluded)
-        assert len(candidates) >= 1  # At least the old one
+        # Should return both candidates (old and medium age)
+        assert len(candidates) == 2
         
         # Find the high urgency candidate
         high_urgency = [c for c in candidates if c["urgency"] == "high"]
-        assert len(high_urgency) >= 1
+        assert len(high_urgency) == 1
         assert high_urgency[0]["service"] == "openai"
+        assert high_urgency[0]["days_since_rotation"] == 200
+        
+        # Find the medium urgency candidate
+        medium_urgency = [c for c in candidates if c["urgency"] == "medium"]
+        assert len(medium_urgency) == 1
+        assert medium_urgency[0]["service"] == "anthropic"
+        assert medium_urgency[0]["days_since_rotation"] == 125
     
     def test_find_recent_backup(self):
         """Test finding recent backup files."""
         # Create temporary backup directory
         with tempfile.TemporaryDirectory() as temp_dir:
-            backup_dir = os.path.join(temp_dir, "rotation_backups")
+            keymaster_dir = os.path.join(temp_dir, ".keymaster")
+            backup_dir = os.path.join(keymaster_dir, "rotation_backups")
             os.makedirs(backup_dir)
             
             # Create mock backup files
@@ -308,7 +316,12 @@ class TestKeyRotator:
                     f.write("test")
             
             # Patch the backup directory path
-            with patch('keymaster.rotation.os.path.expanduser', return_value=temp_dir):
+            def mock_expanduser(path):
+                if path == "~/.keymaster/rotation_backups":
+                    return backup_dir
+                return temp_dir  # For any other ~ paths
+            
+            with patch('keymaster.rotation.os.path.expanduser', side_effect=mock_expanduser):
                 # Should find the most recent backup for openai/dev
                 recent_backup = self.rotator._find_recent_backup("openai", "dev")
                 assert recent_backup == backup2  # Most recent

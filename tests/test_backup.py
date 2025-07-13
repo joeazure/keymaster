@@ -126,7 +126,8 @@ class TestBackupManager:
             
             # Mock empty existing keys for restore
             mock_list_keys.return_value = []
-            mock_get_key.return_value = None
+            # During restore, get_key should return None for the key being restored
+            mock_get_key.side_effect = lambda service, env: None
             
             # Restore backup
             summary = self.backup_manager.restore_backup(
@@ -136,7 +137,7 @@ class TestBackupManager:
             )
             
             # Verify restore summary
-            assert summary['restored_keys'] >= 0  # May vary based on mocking
+            assert summary['restored_keys'] == 1  # Should restore the key
             assert summary['total_processed'] == 1
             assert len(summary['errors']) == 0
             
