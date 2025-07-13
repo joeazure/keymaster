@@ -8,6 +8,10 @@ from keymaster.audit import AuditLogger
 from keymaster.env import EnvManager
 from keymaster.utils import prompt_selection
 from keymaster.providers import get_providers, get_provider_by_name
+from keymaster.selection import ServiceEnvironmentSelector
+from keymaster.backup import BackupManager
+from keymaster.rotation import KeyRotator, KeyRotationHistory
+from keymaster.memory_security import secure_temp_string
 import sys
 from keyring.errors import KeyringError
 from collections import defaultdict
@@ -127,8 +131,15 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
     """
     # If service not provided, prompt for it
     if not service:
-        available_services = list(provider.service_name for provider in get_providers().values())
+        available_services = ServiceEnvironmentSelector.get_all_available_services()
         service, _ = prompt_selection("Select service:", available_services, show_descriptions=True)
+    
+    # Get the canonical service name from the provider (with fuzzy matching)
+    try:
+        service_name = ServiceEnvironmentSelector.find_service_with_fuzzy_matching(service)
+    except Exception as e:
+        click.echo(f"Error: {str(e)}")
+        return
     
     # If environment not provided, prompt for it
     if not environment:
@@ -137,14 +148,6 @@ def add_key(service: str | None, environment: str | None, api_key: str | None, f
     # If api_key not provided, prompt for it
     if not api_key:
         api_key = click.prompt("API key", hide_input=True)
-    
-    # Get the canonical service name from the provider
-    provider = get_provider_by_name(service)
-    if not provider:
-        click.echo(f"Unsupported service: {service}")
-        return
-        
-    service_name = provider.service_name  # Use the canonical name
     
     # Check for existing key
     existing_key = KeyStore.get_key(service_name, environment)
@@ -228,59 +231,48 @@ def remove_key(service: str | None, environment: str | None) -> None:
     """
     Remove a service API key from the macOS Keychain.
     """
-    # Get list of stored keys with metadata
-    stored_keys = KeyStore.list_keys()
-    if not stored_keys:
+    # Check if we have any keys stored
+    if not KeyStore.list_keys():
         click.echo("No keys found.")
         return
     
-    # If service not provided, prompt for it
+    # If service not provided, prompt for it from services with stored keys
     if not service:
-        # Get unique services that have stored keys
-        available_services = {
-            provider.service_name 
-            for provider in get_providers().values()
-            if any(svc.lower() == provider.service_name.lower() for svc, _, _, _ in stored_keys)
-        }
-        if not available_services:
+        service = ServiceEnvironmentSelector.select_service_with_keys("Select service:")
+        if not service:
             click.echo("No services found with stored keys.")
             return
-            
-        service, _ = prompt_selection(
-            "Select service:", 
-            sorted(available_services), 
-            show_descriptions=True
-        )
-    
-    # Get the canonical service name
-    provider = get_provider_by_name(service)
-    if not provider:
-        click.echo(f"Unsupported service: {service}")
-        return
+    else:
+        # Get the canonical service name (with fuzzy matching)
+        try:
+            service = ServiceEnvironmentSelector.find_service_with_fuzzy_matching(service)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}")
+            return
         
-    service_name = provider.service_name
+        # Verify this service has stored keys
+        if not ServiceEnvironmentSelector.get_environments_for_service(service):
+            click.echo(f"No keys found for service '{service}'")
+            return
     
-    # Get environments that have metadata entries for this service
-    available_environments = sorted(set(
-        env for svc, env, _, _ in stored_keys 
-        if svc.lower() == service_name.lower()
-    ))
-    
-    if not available_environments:
-        click.echo(f"No keys found for service '{service_name}'")
-        return
+    service_name = service
     
     # If environment not provided, prompt for it from available environments
     if not environment:
-        environment, _ = prompt_selection(
-            f"Select environment for {service_name}:", 
-            available_environments,
-            allow_new=False  # Don't allow new environments since we're removing existing keys
+        environment = ServiceEnvironmentSelector.select_environment_for_service(
+            service_name, 
+            allow_new=False
         )
-    elif environment not in available_environments:
-        click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
-        click.echo(f"Available environments: {', '.join(available_environments)}")
-        return
+        if not environment:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+    else:
+        # Validate the environment exists for this service
+        if not ServiceEnvironmentSelector.validate_service_has_environment(service_name, environment):
+            available_environments = ServiceEnvironmentSelector.get_environments_for_service(service_name)
+            click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
+            click.echo(f"Available environments: {', '.join(available_environments)}")
+            return
     
     # First check if the key exists in metadata
     metadata_exists = KeyStore.get_key_metadata(service_name, environment)
@@ -582,61 +574,54 @@ def test_key(service: str | None, environment: str | None, verbose: bool, test_a
         return
         
     # Single key testing logic (existing code)
-    # Get unique services that have stored keys and map to canonical names
-    stored_service_names = set(service.lower() for service, _, _, _ in stored_keys)
-    available_providers = {
-        name: provider 
-        for name, provider in get_providers().items()
-        if name in stored_service_names
-    }
-    
-    if not available_providers:
-        click.echo("No services found with stored keys.")
-        return
-    
-    # If service not provided, prompt for it from available services
+    # If service not provided, prompt for it from services with stored keys
     if not service:
-        service_options = [provider.service_name for provider in available_providers.values()]
-        service, _ = prompt_selection(
-            "Select service with stored keys:", 
-            service_options,
-            show_descriptions=True
-        )
-    
-    # Get available environments for the selected service
-    provider = get_provider_by_name(service)
-    if not provider:
-        click.echo(f"Unsupported service: {service}")
-        return
+        service = ServiceEnvironmentSelector.select_service_with_keys("Select service with stored keys:")
+        if not service:
+            click.echo("No services found with stored keys.")
+            return
+    else:
+        # Get the canonical service name (with fuzzy matching)
+        try:
+            service = ServiceEnvironmentSelector.find_service_with_fuzzy_matching(service)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}")
+            return
         
-    service_name = provider.service_name  # Use the canonical name
+        # Verify this service has stored keys
+        if not ServiceEnvironmentSelector.get_environments_for_service(service):
+            click.echo(f"No environments found with stored keys for service {service}.")
+            return
     
-    # Get environments that actually have stored keys for this service
-    available_environments = sorted(set(
-        env for svc, env, _, _ in stored_keys 
-        if svc.lower() == service_name.lower()
-    ))
-    
-    if len(available_environments) == 0:
-        click.echo(f"No environments found with stored keys for service {service_name}.")
-        return
+    service_name = service
     
     # If environment not provided, prompt for it from available environments
     if not environment:
-        environment, _ = prompt_selection(
-            f"Select environment for {service_name}:", 
-            available_environments,
-            allow_new=False  # Don't allow new environments since we're testing existing keys
+        environment = ServiceEnvironmentSelector.select_environment_for_service(
+            service_name, 
+            allow_new=False
         )
-    elif environment not in available_environments:
-        click.echo(f"No key found for {service_name} in {environment} environment.")
-        click.echo(f"Available environments: {', '.join(available_environments)}")
-        return
+        if not environment:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+    else:
+        # Validate the environment exists for this service
+        if not ServiceEnvironmentSelector.validate_service_has_environment(service_name, environment):
+            available_environments = ServiceEnvironmentSelector.get_environments_for_service(service_name)
+            click.echo(f"No key found for {service_name} in {environment} environment.")
+            click.echo(f"Available environments: {', '.join(available_environments)}")
+            return
     
     # Verify the key exists
     key = KeyStore.get_key(service_name, environment)
     if not key:
         click.echo(f"No key found for {service_name} in {environment} environment.")
+        return
+    
+    # Get the provider for testing
+    provider = get_provider_by_name(service_name)
+    if not provider:
+        click.echo(f"Error: Provider not found for {service_name}")
         return
     
     try:
@@ -704,56 +689,43 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
         click.echo("No keys found.")
         return
     
-    # Get unique services that have stored keys and map to canonical names
-    stored_service_names = set(service.lower() for service, _, _, _ in stored_keys)
-    available_providers = {
-        name: provider 
-        for name, provider in get_providers().items()
-        if name in stored_service_names
-    }
-    
-    if not available_providers:
-        click.echo("No services found with stored keys.")
-        return
-    
-    # If service not provided, prompt for it from available services
+    # If service not provided, prompt for it from services with stored keys
     if not service:
-        service_options = [provider.service_name for provider in available_providers.values()]
-        service, _ = prompt_selection(
-            "Select service with stored keys:", 
-            service_options,
-            show_descriptions=True
-        )
-    
-    # Get available environments for the selected service
-    provider = get_provider_by_name(service)
-    if not provider:
-        click.echo(f"Unsupported service: {service}")
-        return
+        service = ServiceEnvironmentSelector.select_service_with_keys("Select service with stored keys:")
+        if not service:
+            click.echo("No services found with stored keys.")
+            return
+    else:
+        # Get the canonical service name (with fuzzy matching)
+        try:
+            service = ServiceEnvironmentSelector.find_service_with_fuzzy_matching(service)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}")
+            return
         
-    service_name = provider.service_name  # Use the canonical name
+        # Verify this service has stored keys
+        if not ServiceEnvironmentSelector.get_environments_for_service(service):
+            click.echo(f"No environments found with stored keys for service {service}.")
+            return
     
-    # Get environments that actually have stored keys for this service
-    available_environments = sorted(set(
-        env for svc, env, _, _ in stored_keys 
-        if svc.lower() == service_name.lower()
-    ))
-    
-    if len(available_environments) == 0:
-        click.echo(f"No environments found with stored keys for service {service_name}.")
-        return
+    service_name = service
     
     # If environment not provided, prompt for it from available environments
     if not environment:
-        environment, _ = prompt_selection(
-            f"Select environment for {service_name}:", 
-            available_environments,
-            allow_new=False  # Don't allow new environments since we're using existing keys
+        environment = ServiceEnvironmentSelector.select_environment_for_service(
+            service_name, 
+            allow_new=False
         )
-    elif environment not in available_environments:
-        click.echo(f"No key found for {service_name} in {environment} environment.")
-        click.echo(f"Available environments: {', '.join(available_environments)}")
-        return
+        if not environment:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+    else:
+        # Validate the environment exists for this service
+        if not ServiceEnvironmentSelector.validate_service_has_environment(service_name, environment):
+            available_environments = ServiceEnvironmentSelector.get_environments_for_service(service_name)
+            click.echo(f"No key found for {service_name} in {environment} environment.")
+            click.echo(f"Available environments: {', '.join(available_environments)}")
+            return
     
     # If output not provided, prompt for it with a default
     if not output:
@@ -794,62 +766,53 @@ def generate_env(service: str | None, environment: str | None, output: str | Non
 @click.option("--service", required=False, help="Service name (e.g., OpenAI)")
 @click.option("--environment", required=False, help="Environment (dev/staging/prod)")
 @click.option("--verbose", is_flag=True, default=False, help="Show detailed test information including API URL and response")
-@click.option("--all", "test_all", is_flag=True, default=False, help="Test all stored keys")
-def rotate_key(service: str | None, environment: str | None, verbose: bool, test_all: bool) -> None:
-    """Rotate an API key (requires manual input of new key)."""
+@click.option("--no-backup", is_flag=True, default=False, help="Skip creating backup before rotation")
+@click.option("--no-test", is_flag=True, default=False, help="Skip testing new key before storage")
+def rotate_key(service: str | None, environment: str | None, verbose: bool, no_backup: bool, no_test: bool) -> None:
+    """Rotate an API key with enhanced backup and validation capabilities."""
     # Get list of stored keys with metadata
     stored_keys = KeyStore.list_keys()
     if not stored_keys:
         click.echo("No keys found.")
         return
     
-    # If service not provided, prompt for it
+    # If service not provided, prompt for it from services with stored keys
     if not service:
-        # Get unique services that have stored keys
-        available_services = {
-            provider.service_name 
-            for provider in get_providers().values()
-            if any(svc.lower() == provider.service_name.lower() for svc, _, _, _ in stored_keys)
-        }
-        if not available_services:
+        service = ServiceEnvironmentSelector.select_service_with_keys("Select service:")
+        if not service:
             click.echo("No services found with stored keys.")
             return
-            
-        service, _ = prompt_selection(
-            "Select service:", 
-            sorted(available_services), 
-            show_descriptions=True
-        )
-    
-    # Get the canonical service name
-    provider = get_provider_by_name(service)
-    if not provider:
-        click.echo(f"Unsupported service: {service}")
-        return
+    else:
+        # Get the canonical service name (with fuzzy matching)
+        try:
+            service = ServiceEnvironmentSelector.find_service_with_fuzzy_matching(service)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}")
+            return
         
-    service_name = provider.service_name
+        # Verify this service has stored keys
+        if not ServiceEnvironmentSelector.get_environments_for_service(service):
+            click.echo(f"No keys found for service '{service}'")
+            return
     
-    # Get environments that have metadata entries for this service
-    available_environments = sorted(set(
-        env for svc, env, _, _ in stored_keys 
-        if svc.lower() == service_name.lower()
-    ))
-    
-    if not available_environments:
-        click.echo(f"No keys found for service '{service_name}'")
-        return
+    service_name = service
     
     # If environment not provided, prompt for it from available environments
     if not environment:
-        environment, _ = prompt_selection(
-            f"Select environment for {service_name}:", 
-            available_environments,
-            allow_new=False  # Don't allow new environments since we're rotating existing keys
+        environment = ServiceEnvironmentSelector.select_environment_for_service(
+            service_name, 
+            allow_new=False
         )
-    elif environment not in available_environments:
-        click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
-        click.echo(f"Available environments: {', '.join(available_environments)}")
-        return
+        if not environment:
+            click.echo(f"No environments found with stored keys for service {service_name}.")
+            return
+    else:
+        # Validate the environment exists for this service
+        if not ServiceEnvironmentSelector.validate_service_has_environment(service_name, environment):
+            available_environments = ServiceEnvironmentSelector.get_environments_for_service(service_name)
+            click.echo(f"No key found for service '{service_name}' in environment '{environment}'")
+            click.echo(f"Available environments: {', '.join(available_environments)}")
+            return
     
     # Get the old key
     old_key = KeyStore.get_key(service_name, environment)
@@ -866,42 +829,214 @@ def rotate_key(service: str | None, environment: str | None, verbose: bool, test
         click.echo("Keys do not match!")
         return
     
-    # Test the new key before storing it
+    # Use enhanced rotation system
     try:
-        if verbose := click.confirm("Would you like to see the test results?", default=False):
-            click.echo(f"\nTesting new key for {service_name} ({environment})...")
-            click.echo(f"API Endpoint: {provider.api_url}")
-            
-        result = provider.test_key(new_key)
+        rotator = KeyRotator()
+        
+        # Determine backup password if backup is requested
+        backup_password = None
+        if not no_backup and old_key:
+            if click.confirm("Would you like to set a custom backup password?", default=False):
+                backup_password = click.prompt("Backup password", hide_input=True)
+        
+        # Perform enhanced rotation
+        with secure_temp_string(new_key) as secure_key:
+            rotation_result = rotator.rotate_key(
+                service=service_name,
+                environment=environment,
+                new_key=secure_key.get(),
+                test_key=not no_test,
+                create_backup=not no_backup,
+                backup_password=backup_password
+            )
+        
+        # Display results
+        click.echo(f"\n✅ Successfully rotated key for {service_name} ({environment})")
+        
+        if rotation_result["backup_created"]:
+            click.echo(f"📁 Backup created: {rotation_result['backup_path']}")
+        
+        if rotation_result["key_tested"]:
+            click.echo("🔍 New key validated successfully")
+        
+        if rotation_result["old_key_backed_up"]:
+            click.echo("💾 Old key backed up in secure storage")
         
         if verbose:
-            click.echo("\nAPI Response:")
-            click.echo(f"{result}")
-            
-        click.echo(f"\n✅ New key validation successful for {service_name}")
+            click.echo("\nRotation Details:")
+            for key, value in rotation_result.items():
+                if key not in ["service", "environment"]:
+                    click.echo(f"  {key}: {value}")
+    
     except Exception as e:
-        click.echo(f"\n❌ New key validation failed: {str(e)}")
-        if not click.confirm("Do you want to store the key anyway?", default=False):
-            return
-    
-    # Store the new key
-    KeyStore.store_key(service_name, environment, new_key)
-    
-    # Log the rotation
-    audit_logger = AuditLogger()
-    audit_logger.log_event(
-        event_type="key_rotation",
-        service=service_name,
-        environment=environment,
-        user=os.getenv("USER", "unknown"),
-        additional_data={
-            "action": "rotate",
-            "old_key_existed": bool(old_key),
-            "validation_succeeded": True
-        }
-    )
-    
-    click.echo(f"\nSuccessfully rotated key for {service_name} ({environment})")
+        click.echo(f"\n❌ Key rotation failed: {str(e)}")
+        if click.confirm("Would you like to see rotation history for troubleshooting?", default=False):
+            history = KeyRotationHistory()
+            rotations = history.get_rotation_history(service_name, environment)
+            if rotations:
+                click.echo(f"\nRecent rotation attempts for {service_name} ({environment}):")
+                for i, rotation in enumerate(rotations[-3:], 1):
+                    status = "✅" if rotation["success"] else "❌"
+                    click.echo(f"  {i}. {rotation['timestamp']} {status} by {rotation['user']}")
+                    if rotation.get("error_message"):
+                        click.echo(f"     Error: {rotation['error_message']}")
+            else:
+                click.echo("No rotation history found.")
+
+
+@cli.command()
+@click.option("--output", required=False, help="Output backup file path")
+@click.option("--password", required=False, help="Encryption password (prompted if not provided)")
+@click.option("--service", required=False, help="Filter by service name")
+@click.option("--environment", required=False, help="Filter by environment")
+@click.option("--no-audit", is_flag=True, default=False, help="Exclude audit logs from backup")
+def backup(output: str | None, password: str | None, service: str | None, environment: str | None, no_audit: bool) -> None:
+    """Create an encrypted backup of API keys and metadata."""
+    try:
+        backup_manager = BackupManager()
+        
+        # Determine output path
+        if not output:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_name = f"keymaster_backup_{timestamp}.kmbackup"
+            output = click.prompt("Backup file path", default=default_name)
+        
+        # Get password
+        if not password:
+            password = click.prompt("Encryption password", hide_input=True, confirmation_prompt=True)
+        
+        # Create backup
+        click.echo("Creating backup...")
+        summary = backup_manager.create_backup(
+            backup_path=output,
+            password=password,
+            include_audit_logs=not no_audit,
+            service_filter=service,
+            environment_filter=environment
+        )
+        
+        # Display summary
+        click.echo(f"\n✅ Backup created successfully: {output}")
+        click.echo(f"📊 Keys backed up: {summary['keys_count']}")
+        click.echo(f"🏷️  Services: {', '.join(summary['services'])}")
+        click.echo(f"🌍 Environments: {', '.join(summary['environments'])}")
+        click.echo(f"📝 Audit logs: {summary['audit_logs_count']}")
+        click.echo(f"💾 File size: {summary['file_size']} bytes")
+        
+        click.echo(f"\n⚠️  Keep your encryption password safe - it cannot be recovered!")
+        
+    except Exception as e:
+        click.echo(f"❌ Backup failed: {str(e)}")
+
+
+@cli.command()
+@click.option("--backup-file", required=False, help="Backup file path")
+@click.option("--password", required=False, help="Decryption password (prompted if not provided)")
+@click.option("--dry-run", is_flag=True, default=False, help="Show what would be restored without actually restoring")
+@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing keys")
+def restore(backup_file: str | None, password: str | None, dry_run: bool, overwrite: bool) -> None:
+    """Restore API keys and metadata from an encrypted backup."""
+    try:
+        backup_manager = BackupManager()
+        
+        # Get backup file path
+        if not backup_file:
+            backup_file = click.prompt("Backup file path")
+        
+        # Get password
+        if not password:
+            password = click.prompt("Decryption password", hide_input=True)
+        
+        # Perform restore
+        if dry_run:
+            click.echo("Analyzing backup contents...")
+            summary = backup_manager.list_backup_contents(backup_file, password)
+            
+            click.echo(f"\n📋 Backup Contents:")
+            click.echo(f"   Total keys: {summary['total_keys']}")
+            click.echo(f"   New keys: {summary['new_keys']}")
+            click.echo(f"   Conflicts: {summary['conflicts']}")
+            click.echo(f"   Services: {', '.join(summary['services'])}")
+            click.echo(f"   Environments: {', '.join(summary['environments'])}")
+            click.echo(f"   Audit logs: {summary['audit_logs_count']}")
+            click.echo(f"   Created: {summary['created_at']} by {summary['created_by']}")
+            
+            if summary['conflicts'] > 0:
+                click.echo(f"\n⚠️  Conflicting keys (already exist):")
+                for service, env in summary['conflicting_keys']:
+                    click.echo(f"     {service} ({env})")
+                click.echo(f"\n💡 Use --overwrite to replace existing keys")
+            
+            if summary['new_keys'] > 0:
+                click.echo(f"\n✨ New keys to be added:")
+                for service, env in summary['new_keys_list']:
+                    click.echo(f"     {service} ({env})")
+        
+        else:
+            click.echo("Restoring from backup...")
+            summary = backup_manager.restore_backup(
+                backup_path=backup_file,
+                password=password,
+                overwrite_existing=overwrite
+            )
+            
+            click.echo(f"\n✅ Restore completed!")
+            click.echo(f"📥 Keys restored: {summary['restored_keys']}")
+            click.echo(f"⏭️  Keys skipped: {summary['skipped_keys']}")
+            
+            if summary['errors']:
+                click.echo(f"\n❌ Errors encountered:")
+                for error in summary['errors']:
+                    click.echo(f"   {error}")
+        
+    except Exception as e:
+        click.echo(f"❌ Restore failed: {str(e)}")
+
+
+@cli.command()
+@click.option("--days", default=90, help="Show keys older than N days (default: 90)")
+@click.option("--stats", is_flag=True, default=False, help="Show rotation statistics")
+def rotation_status(days: int, stats: bool) -> None:
+    """Show key rotation status and recommendations."""
+    try:
+        history = KeyRotationHistory()
+        rotator = KeyRotator()
+        
+        if stats:
+            # Show rotation statistics
+            rotation_stats = history.get_rotation_stats()
+            click.echo("📊 Key Rotation Statistics")
+            click.echo("=" * 30)
+            click.echo(f"Total keys tracked: {rotation_stats['total_keys_tracked']}")
+            click.echo(f"Total rotations: {rotation_stats['total_rotations']}")
+            click.echo(f"Successful rotations: {rotation_stats['successful_rotations']}")
+            click.echo(f"Failed rotations: {rotation_stats['failed_rotations']}")
+            click.echo(f"Keys never rotated: {rotation_stats['keys_never_rotated']}")
+            
+            if rotation_stats['newest_rotation']:
+                click.echo(f"Most recent rotation: {rotation_stats['newest_rotation']}")
+            if rotation_stats['oldest_key']:
+                click.echo(f"Oldest tracked key: {rotation_stats['oldest_key']}")
+        
+        # Show rotation candidates
+        candidates = rotator.list_rotation_candidates(days)
+        
+        if candidates:
+            click.echo(f"\n🔄 Keys due for rotation (older than {days} days):")
+            click.echo("=" * 50)
+            
+            for candidate in candidates:
+                urgency_icon = "🔴" if candidate["urgency"] == "high" else "🟡" if candidate["urgency"] == "medium" else "🟢"
+                click.echo(f"{urgency_icon} {candidate['service']} ({candidate['environment']})")
+                click.echo(f"   Last rotation: {candidate['last_rotation']}")
+                click.echo(f"   Days since: {candidate['days_since_rotation']}")
+                click.echo(f"   Urgency: {candidate['urgency']}")
+                click.echo()
+        else:
+            click.echo(f"\n✅ All keys are up to date (rotated within {days} days)")
+        
+    except Exception as e:
+        click.echo(f"❌ Failed to get rotation status: {str(e)}")
 
 
 @cli.command()
